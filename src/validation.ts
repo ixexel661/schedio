@@ -34,9 +34,10 @@ export function validateAtTime(time: string | number): void {
 		return;
 	}
 	const match = /^(\d{1,2}):(\d{2})$/.exec(time);
-	assert(match !== null, `at() expects "HH:MM", got: "${time}"`);
-	const h = parseInt(match![1], 10);
-	const m = parseInt(match![2], 10);
+	if (!match)
+		throw new RangeError(`schedio: at() expects "HH:MM", got: "${time}"`);
+	const h = parseInt(match[1], 10);
+	const m = parseInt(match[2], 10);
 	assert(
 		h >= 0 && h <= 23 && m >= 0 && m <= 59,
 		`at() expects a time 00:00–23:59, got: "${time}"`,
@@ -52,9 +53,12 @@ export function validateOnDay(day: number): void {
 
 export function validateOnMonthDay(monthDay: string): void {
 	const match = /^(\d{2})-(\d{2})$/.exec(monthDay);
-	assert(match !== null, `on() expects "MM-DD" format, got: "${monthDay}"`);
-	const mo = parseInt(match![1], 10);
-	const d = parseInt(match![2], 10);
+	if (!match)
+		throw new RangeError(
+			`schedio: on() expects "MM-DD" format, got: "${monthDay}"`,
+		);
+	const mo = parseInt(match[1], 10);
+	const d = parseInt(match[2], 10);
 	assert(mo >= 1 && mo <= 12, `on() expects month 01–12, got: "${monthDay}"`);
 	assert(d >= 1 && d <= 31, `on() expects day 01–31, got: "${monthDay}"`);
 }

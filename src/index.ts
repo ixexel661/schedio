@@ -1,4 +1,3 @@
-export { schedule } from "./builder.js";
 export type {
 	AtDayStep,
 	AtMinuteStep,
@@ -11,6 +10,7 @@ export type {
 	UnitStep,
 	WeekdayOrAtStep,
 } from "./builder.js";
+export { schedule } from "./builder.js";
 export type {
 	Job,
 	JobHandle,

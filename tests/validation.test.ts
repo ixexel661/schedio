@@ -49,14 +49,18 @@ describe("validation — at() on AtMinuteStep (hours)", () => {
 	});
 
 	it("throws on 60", () => {
-		expect(() => schedule().every().hours().at(60).run(noop)).toThrow(RangeError);
+		expect(() => schedule().every().hours().at(60).run(noop)).toThrow(
+			RangeError,
+		);
 		expect(() => schedule().every().hours().at(60).run(noop)).toThrow(
 			"schedio: at() expects a minute 0–59",
 		);
 	});
 
 	it("throws on negative", () => {
-		expect(() => schedule().every().hours().at(-1).run(noop)).toThrow(RangeError);
+		expect(() => schedule().every().hours().at(-1).run(noop)).toThrow(
+			RangeError,
+		);
 	});
 });
 
@@ -67,7 +71,9 @@ describe("validation — at() on AtTimeStep (days/weeks)", () => {
 	});
 
 	it("throws on hour 24", () => {
-		expect(() => schedule().every().days().at(24).run(noop)).toThrow(RangeError);
+		expect(() => schedule().every().days().at(24).run(noop)).toThrow(
+			RangeError,
+		);
 		expect(() => schedule().every().days().at(24).run(noop)).toThrow(
 			"schedio: at() expects an hour 0–23",
 		);
@@ -94,17 +100,17 @@ describe("validation — at() on AtTimeStep (days/weeks)", () => {
 
 describe("validation — on() for months", () => {
 	it("accepts 1–31", () => {
-		expect(() =>
-			schedule().every().months().on(1).run(noop),
-		).not.toThrow();
-		expect(() =>
-			schedule().every().months().on(31).run(noop),
-		).not.toThrow();
+		expect(() => schedule().every().months().on(1).run(noop)).not.toThrow();
+		expect(() => schedule().every().months().on(31).run(noop)).not.toThrow();
 	});
 
 	it("throws on 0 and 32", () => {
-		expect(() => schedule().every().months().on(0).run(noop)).toThrow(RangeError);
-		expect(() => schedule().every().months().on(32).run(noop)).toThrow(RangeError);
+		expect(() => schedule().every().months().on(0).run(noop)).toThrow(
+			RangeError,
+		);
+		expect(() => schedule().every().months().on(32).run(noop)).toThrow(
+			RangeError,
+		);
 		expect(() => schedule().every().months().on(0).run(noop)).toThrow(
 			"schedio: on() expects a day 1–31",
 		);
@@ -192,9 +198,9 @@ describe("validation — jitter()", () => {
 	});
 
 	it("throws on NaN", () => {
-		expect(() =>
-			schedule().every(1).minutes().jitter(NaN).run(noop),
-		).toThrow(RangeError);
+		expect(() => schedule().every(1).minutes().jitter(NaN).run(noop)).toThrow(
+			RangeError,
+		);
 	});
 });
 

@@ -1,25 +1,22 @@
 import { computeNextRun } from "./compute.js";
-import type { Job, JobHandle, RunOptions, ScheduleDescriptor } from "./types.js";
+import type {
+	Job,
+	JobHandle,
+	RunOptions,
+	ScheduleDescriptor,
+} from "./types.js";
 
 // Node.js setTimeout only accepts 32-bit signed integers (~24.8 days max)
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
-export class ScheduledJob implements JobHandle {
-	private timer: ReturnType<typeof setTimeout> | null = null;
-	private _active = true;
-	private runsLeft: number | null;
-	private readonly options: RunOptions | undefined;
+abstract class BaseJob implements JobHandle {
+	protected timer: ReturnType<typeof setTimeout> | null = null;
+	protected _active = true;
 
 	constructor(
-		private readonly desc: ScheduleDescriptor,
-		private readonly job: Job,
-		options?: RunOptions,
-	) {
-		this.options = options;
-		this.runsLeft = desc.maxRuns ?? null;
-		if (desc.runNow) void this.fire();
-		else this.scheduleNext();
-	}
+		protected readonly job: Job,
+		protected readonly options: RunOptions | undefined,
+	) {}
 
 	get active(): boolean {
 		return this._active;
@@ -31,6 +28,21 @@ export class ScheduledJob implements JobHandle {
 			clearTimeout(this.timer);
 			this.timer = null;
 		}
+	}
+}
+
+export class ScheduledJob extends BaseJob {
+	private runsLeft: number | null;
+
+	constructor(
+		private readonly desc: ScheduleDescriptor,
+		job: Job,
+		options?: RunOptions,
+	) {
+		super(job, options);
+		this.runsLeft = desc.maxRuns ?? null;
+		if (desc.runNow) void this.fire();
+		else this.scheduleNext();
 	}
 
 	private scheduleNext(): void {
@@ -67,42 +79,21 @@ export class ScheduledJob implements JobHandle {
 			await this.job();
 		} catch (err) {
 			this.options?.onError?.(err);
-		} finally {
-			if (this._active) {
-				if (this.runsLeft !== null && --this.runsLeft <= 0) {
-					this.stop();
-					return;
-				}
+		}
+		if (this._active) {
+			if (this.runsLeft !== null && --this.runsLeft <= 0) {
+				this.stop();
+			} else {
 				this.scheduleNext();
 			}
 		}
 	}
 }
 
-class OneshotJob implements JobHandle {
-	private timer: ReturnType<typeof setTimeout> | null = null;
-	private _active = true;
-	private readonly options: RunOptions | undefined;
-
-	constructor(
-		private readonly targetMs: number,
-		private readonly job: Job,
-		options?: RunOptions,
-	) {
-		this.options = options;
+class OneshotJob extends BaseJob {
+	constructor(targetMs: number, job: Job, options?: RunOptions) {
+		super(job, options);
 		this.armTimer(Math.max(0, targetMs - Date.now()));
-	}
-
-	get active(): boolean {
-		return this._active;
-	}
-
-	stop(): void {
-		this._active = false;
-		if (this.timer !== null) {
-			clearTimeout(this.timer);
-			this.timer = null;
-		}
 	}
 
 	private armTimer(remainingMs: number): void {

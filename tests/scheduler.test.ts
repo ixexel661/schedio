@@ -294,7 +294,9 @@ describe("scheduler — onError", () => {
 
 		const handle = schedule().every(1).minutes().run(job);
 
-		await expect(vi.advanceTimersByTimeAsync(2 * 60_000)).resolves.not.toThrow();
+		await expect(
+			vi.advanceTimersByTimeAsync(2 * 60_000),
+		).resolves.not.toThrow();
 		expect(job).toHaveBeenCalledTimes(2);
 
 		handle.stop();
@@ -307,7 +309,10 @@ describe("scheduler — onError", () => {
 			throw err;
 		});
 
-		const handle = schedule().once().at("2025-01-06T01:00:00Z").run(job, { onError });
+		const handle = schedule()
+			.once()
+			.at("2025-01-06T01:00:00Z")
+			.run(job, { onError });
 
 		await vi.advanceTimersByTimeAsync(3_600_000);
 		expect(onError).toHaveBeenCalledTimes(1);

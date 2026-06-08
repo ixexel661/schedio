@@ -173,20 +173,32 @@ describe("computeNextRun", () => {
 
 		it("every(2).weeks().monday() — first fire is ≤2 weeks away, second is exactly 2 weeks later", () => {
 			const from = zdt("2025-01-06T10:00:00.000Z"); // Monday 2025-01-06
-			const desc: ScheduleDescriptor = { every: 2, unit: "week", weekday: "monday", atHour: 9 };
+			const desc: ScheduleDescriptor = {
+				every: 2,
+				unit: "week",
+				weekday: "monday",
+				atHour: 9,
+			};
 			const first = computeNextRun(desc, from);
 			const second = computeNextRun(desc, first);
 			expect(first.dayOfWeek).toBe(1); // Monday
 			expect(second.dayOfWeek).toBe(1); // Monday
 			// First fire must be within 2 weeks
-			expect(epochMs(first) - epochMs(from)).toBeLessThanOrEqual(2 * 7 * 86_400_000);
+			expect(epochMs(first) - epochMs(from)).toBeLessThanOrEqual(
+				2 * 7 * 86_400_000,
+			);
 			// Second fire is exactly 2 weeks after the first
 			expect(epochMs(second) - epochMs(first)).toBe(2 * 7 * 86_400_000);
 		});
 
 		it("every().weeks() without weekday: consecutive fires are exactly 7 days apart", () => {
 			const from = zdt("2025-01-06T00:05:00.000Z"); // Monday
-			const desc: ScheduleDescriptor = { every: 1, unit: "week", atHour: 0, atMinute: 5 };
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				atHour: 0,
+				atMinute: 5,
+			};
 			const first = computeNextRun(desc, from);
 			const second = computeNextRun(desc, first);
 			// Consecutive fires must be exactly 7 days apart

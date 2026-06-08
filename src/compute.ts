@@ -144,22 +144,19 @@ function computeNextMonth(
 	const atMinute = desc.atMinute ?? 0;
 
 	// overflow: 'constrain' clamps invalid days (e.g. Feb 31 → Feb 28)
-	let candidate = from.with(
-		{ day: atDay, hour: atHour, minute: atMinute, second: 0, millisecond: 0 },
-		{ overflow: "constrain" },
-	);
+	const fields = {
+		day: atDay,
+		hour: atHour,
+		minute: atMinute,
+		second: 0,
+		millisecond: 0,
+	};
+	let candidate = from.with(fields, { overflow: "constrain" });
 
 	if (Temporal.ZonedDateTime.compare(candidate, from) <= 0) {
-		candidate = from.add({ months: desc.every }).with(
-			{
-				day: atDay,
-				hour: atHour,
-				minute: atMinute,
-				second: 0,
-				millisecond: 0,
-			},
-			{ overflow: "constrain" },
-		);
+		candidate = from
+			.add({ months: desc.every })
+			.with(fields, { overflow: "constrain" });
 	}
 
 	return candidate;
@@ -174,30 +171,20 @@ function computeNextYear(
 	const atHour = desc.atHour ?? 0;
 	const atMinute = desc.atMinute ?? 0;
 
-	let candidate = from.with(
-		{
-			month: atMonth,
-			day: atDay,
-			hour: atHour,
-			minute: atMinute,
-			second: 0,
-			millisecond: 0,
-		},
-		{ overflow: "constrain" },
-	);
+	const fields = {
+		month: atMonth,
+		day: atDay,
+		hour: atHour,
+		minute: atMinute,
+		second: 0,
+		millisecond: 0,
+	};
+	let candidate = from.with(fields, { overflow: "constrain" });
 
 	if (Temporal.ZonedDateTime.compare(candidate, from) <= 0) {
-		candidate = from.add({ years: desc.every }).with(
-			{
-				month: atMonth,
-				day: atDay,
-				hour: atHour,
-				minute: atMinute,
-				second: 0,
-				millisecond: 0,
-			},
-			{ overflow: "constrain" },
-		);
+		candidate = from
+			.add({ years: desc.every })
+			.with(fields, { overflow: "constrain" });
 	}
 
 	return candidate;

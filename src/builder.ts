@@ -58,7 +58,9 @@ export class OnceStep {
 	constructor(timezone: string | undefined) {
 		this.timezone = timezone;
 	}
-	at(target: string | Temporal.Instant | Temporal.ZonedDateTime): OnceFiredStep {
+	at(
+		target: string | Temporal.Instant | Temporal.ZonedDateTime,
+	): OnceFiredStep {
 		try {
 			return new OnceFiredStep(resolveTargetMs(target, this.timezone));
 		} catch {
@@ -178,65 +180,75 @@ export class UnitStep {
 		private readonly desc: Partial<ScheduleDescriptor> & { every: number },
 	) {}
 
-	second(): RunStep { return this.seconds(); }
+	second(): RunStep {
+		return this.seconds();
+	}
 	seconds(): RunStep {
 		return new RunStep({ ...this.desc, unit: "second" });
 	}
 
-	minute(): RunStep { return this.minutes(); }
+	minute(): RunStep {
+		return this.minutes();
+	}
 	minutes(): RunStep {
 		return new RunStep({ ...this.desc, unit: "minute" });
 	}
 
-	hour(): AtMinuteStep { return this.hours(); }
+	hour(): AtMinuteStep {
+		return this.hours();
+	}
 	hours(): AtMinuteStep {
 		return new AtMinuteStep({ ...this.desc, unit: "hour" });
 	}
 
-	day(): AtTimeStep { return this.days(); }
+	day(): AtTimeStep {
+		return this.days();
+	}
 	days(): AtTimeStep {
 		return new AtTimeStep({ ...this.desc, unit: "day" });
 	}
 
-	week(): WeekdayOrAtStep { return this.weeks(); }
+	week(): WeekdayOrAtStep {
+		return this.weeks();
+	}
 	weeks(): WeekdayOrAtStep {
 		return new WeekdayOrAtStep({ ...this.desc, unit: "week" });
 	}
 
-	month(): AtDayStep { return this.months(); }
+	month(): AtDayStep {
+		return this.months();
+	}
 	months(): AtDayStep {
 		return new AtDayStep({ ...this.desc, unit: "month" });
 	}
 
-	year(): AtMonthDayStep { return this.years(); }
+	year(): AtMonthDayStep {
+		return this.years();
+	}
 	years(): AtMonthDayStep {
 		return new AtMonthDayStep({ ...this.desc, unit: "year" });
 	}
 
 	monday(): AtTimeStep {
-		return this.namedWeekday("monday");
+		return this.weeks().monday();
 	}
 	tuesday(): AtTimeStep {
-		return this.namedWeekday("tuesday");
+		return this.weeks().tuesday();
 	}
 	wednesday(): AtTimeStep {
-		return this.namedWeekday("wednesday");
+		return this.weeks().wednesday();
 	}
 	thursday(): AtTimeStep {
-		return this.namedWeekday("thursday");
+		return this.weeks().thursday();
 	}
 	friday(): AtTimeStep {
-		return this.namedWeekday("friday");
+		return this.weeks().friday();
 	}
 	saturday(): AtTimeStep {
-		return this.namedWeekday("saturday");
+		return this.weeks().saturday();
 	}
 	sunday(): AtTimeStep {
-		return this.namedWeekday("sunday");
-	}
-
-	private namedWeekday(weekday: Weekday): AtTimeStep {
-		return new AtTimeStep({ ...this.desc, unit: "week", weekday });
+		return this.weeks().sunday();
 	}
 }
 
