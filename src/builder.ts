@@ -63,9 +63,10 @@ export class OnceStep {
 	): OnceFiredStep {
 		try {
 			return new OnceFiredStep(resolveTargetMs(target, this.timezone));
-		} catch {
+		} catch (e) {
 			throw new RangeError(
 				`schedio: once().at() received an invalid datetime: ${String(target)}`,
+				{ cause: e },
 			);
 		}
 	}

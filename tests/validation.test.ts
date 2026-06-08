@@ -214,6 +214,17 @@ describe("validation — once().at()", () => {
 		);
 	});
 
+	it("preserves original error as cause", () => {
+		let caught: unknown;
+		try {
+			schedule().once().at("not-a-date").run(noop);
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(RangeError);
+		expect((caught as RangeError & { cause?: unknown }).cause).toBeTruthy();
+	});
+
 	it("accepts valid ISO strings", () => {
 		expect(() =>
 			schedule().once().at("2030-01-01T00:00:00Z").run(noop),

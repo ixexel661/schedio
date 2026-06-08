@@ -5,6 +5,58 @@ import type { JobHandle } from "../src/types.js";
 // Use a known Monday at midnight UTC
 const FAKE_NOW = new Date("2025-01-06T00:00:00.000Z");
 
+describe("scheduler — drift correction", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("every(1).seconds() fires on exact second boundaries despite job duration", async () => {
+		const fires: number[] = [];
+		// Job takes 200ms but should not shift subsequent firings
+		const job = vi.fn(async () => {
+			fires.push(Date.now());
+			await vi.advanceTimersByTimeAsync(200);
+		});
+
+		const handle = schedule().every(1).seconds().run(job);
+
+		// Advance 5 full seconds; each fire + job takes 1200ms in simulated time
+		await vi.advanceTimersByTimeAsync(5_000);
+
+		expect(fires.length).toBeGreaterThanOrEqual(4);
+		// Each fire should be at a 1000ms multiple from epoch start, not drifted
+		for (const fireMs of fires) {
+			const offsetMs = fireMs - FAKE_NOW.getTime();
+			expect(offsetMs % 1_000).toBe(0);
+		}
+
+		handle.stop();
+	});
+
+	it("every(1).minutes() fires on exact minute boundaries despite job duration", async () => {
+		const fires: number[] = [];
+		const job = vi.fn(async () => {
+			fires.push(Date.now());
+			await vi.advanceTimersByTimeAsync(5_000); // 5s job
+		});
+
+		const handle = schedule().every(1).minutes().run(job);
+
+		await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+		expect(fires.length).toBeGreaterThanOrEqual(2);
+		for (const fireMs of fires) {
+			const offsetMs = fireMs - FAKE_NOW.getTime();
+			expect(offsetMs % 60_000).toBe(0);
+		}
+
+		handle.stop();
+	});
+});
+
 describe("scheduler — timer loop", () => {
 	beforeEach(() => {
 		vi.useFakeTimers({ now: FAKE_NOW });
@@ -317,6 +369,43 @@ describe("scheduler — onError", () => {
 		await vi.advanceTimersByTimeAsync(3_600_000);
 		expect(onError).toHaveBeenCalledTimes(1);
 		expect(onError).toHaveBeenCalledWith(err);
+		expect(handle.active).toBe(false);
+	});
+
+	it("schedule survives when onError itself throws", async () => {
+		const onError = vi.fn(() => {
+			throw new Error("onError exploded");
+		});
+		const job = vi.fn(() => {
+			throw new Error("job failed");
+		});
+
+		const handle = schedule().every(1).minutes().run(job, { onError });
+
+		await expect(
+			vi.advanceTimersByTimeAsync(3 * 60_000),
+		).resolves.not.toThrow();
+		expect(job).toHaveBeenCalledTimes(3);
+		expect(onError).toHaveBeenCalledTimes(3);
+
+		handle.stop();
+	});
+
+	it("once() job: schedule survives when onError itself throws", async () => {
+		const onError = vi.fn(() => {
+			throw new Error("onError exploded");
+		});
+		const job = vi.fn(() => {
+			throw new Error("job failed");
+		});
+
+		const handle = schedule()
+			.once()
+			.at("2025-01-06T01:00:00Z")
+			.run(job, { onError });
+
+		await expect(vi.advanceTimersByTimeAsync(3_600_000)).resolves.not.toThrow();
+		expect(onError).toHaveBeenCalledTimes(1);
 		expect(handle.active).toBe(false);
 	});
 });

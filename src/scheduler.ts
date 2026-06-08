@@ -33,6 +33,8 @@ abstract class BaseJob implements JobHandle {
 
 export class ScheduledJob extends BaseJob {
 	private runsLeft: number | null;
+	// Tracks the intended fire time so seconds/minutes don't drift with job duration
+	private scheduledMs: number | null = null;
 
 	constructor(
 		private readonly desc: ScheduleDescriptor,
@@ -48,13 +50,16 @@ export class ScheduledJob extends BaseJob {
 	private scheduleNext(): void {
 		if (!this._active) return;
 
-		// Build a ZonedDateTime from Date.now() so fake timers work in tests.
 		const tz = this.desc.timezone ?? Temporal.Now.timeZoneId();
 		const nowMs = Date.now();
-		const now =
-			Temporal.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(tz);
-		const nextRun = computeNextRun(this.desc, now);
-		const baseDelay = nextRun.toInstant().epochMilliseconds - nowMs;
+		// Use last scheduled fire time as base to prevent drift for seconds/minutes.
+		// First call (scheduledMs === null) falls back to now.
+		const baseMs = this.scheduledMs ?? nowMs;
+		const base =
+			Temporal.Instant.fromEpochMilliseconds(baseMs).toZonedDateTimeISO(tz);
+		const nextRun = computeNextRun(this.desc, base);
+		this.scheduledMs = nextRun.toInstant().epochMilliseconds;
+		const baseDelay = this.scheduledMs - nowMs;
 
 		const jitter =
 			this.desc.jitterMs != null
@@ -78,7 +83,11 @@ export class ScheduledJob extends BaseJob {
 		try {
 			await this.job();
 		} catch (err) {
-			this.options?.onError?.(err);
+			try {
+				this.options?.onError?.(err);
+			} catch {
+				/* onError must not throw; swallow to keep schedule alive */
+			}
 		}
 		if (this._active) {
 			if (this.runsLeft !== null && --this.runsLeft <= 0) {
@@ -114,7 +123,11 @@ class OneshotJob extends BaseJob {
 		try {
 			await this.job();
 		} catch (err) {
-			this.options?.onError?.(err);
+			try {
+				this.options?.onError?.(err);
+			} catch {
+				/* onError must not throw; swallow to keep schedule alive */
+			}
 		}
 	}
 }
