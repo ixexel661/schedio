@@ -1,4 +1,4 @@
-import { ScheduledJob } from "./scheduler.js";
+import { OneshotJob, ScheduledJob } from "./scheduler.js";
 import type {
 	Job,
 	JobHandle,
@@ -7,10 +7,67 @@ import type {
 	Weekday,
 } from "./types.js";
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function resolveTargetMs(
+	target: string | Temporal.Instant | Temporal.ZonedDateTime,
+	timezone: string | undefined,
+): number {
+	if (typeof target !== "string") {
+		return "timeZoneId" in target
+			? target.toInstant().epochMilliseconds
+			: target.epochMilliseconds;
+	}
+	if (target.includes("[")) {
+		return Temporal.ZonedDateTime.from(target).toInstant().epochMilliseconds;
+	}
+	if (/Z$|[+-]\d{2}:\d{2}$/.test(target)) {
+		return Temporal.Instant.from(target).epochMilliseconds;
+	}
+	// Plain datetime without timezone — interpret in the configured/local timezone
+	const tz = timezone ?? Temporal.Now.timeZoneId();
+	return Temporal.ZonedDateTime.from(`${target}[${tz}]`).toInstant()
+		.epochMilliseconds;
+}
+
+// ── once() steps ──────────────────────────────────────────────────────────────
+
+export class OnceFiredStep {
+	private readonly targetMs: number;
+	constructor(targetMs: number) {
+		this.targetMs = targetMs;
+	}
+	run(job: Job): JobHandle {
+		return new OneshotJob(this.targetMs, job);
+	}
+}
+
+export class OnceStep {
+	private readonly timezone: string | undefined;
+	constructor(timezone: string | undefined) {
+		this.timezone = timezone;
+	}
+	at(target: string | Temporal.Instant | Temporal.ZonedDateTime): OnceFiredStep {
+		return new OnceFiredStep(resolveTargetMs(target, this.timezone));
+	}
+}
+
 // ── Terminal step ─────────────────────────────────────────────────────────────
 
 export class RunStep {
 	constructor(protected readonly desc: ScheduleDescriptor) {}
+
+	times(n: number): RunStep {
+		return new RunStep({ ...this.desc, maxRuns: n });
+	}
+
+	jitter(ms: number): RunStep {
+		return new RunStep({ ...this.desc, jitterMs: ms });
+	}
+
+	runNow(): RunStep {
+		return new RunStep({ ...this.desc, runNow: true });
+	}
 
 	run(job: Job): JobHandle {
 		return new ScheduledJob(this.desc, job);
@@ -171,6 +228,10 @@ export class EveryStep {
 
 	every(n?: number): UnitStep {
 		return new UnitStep({ every: n ?? 1, timezone: this.timezone });
+	}
+
+	once(): OnceStep {
+		return new OnceStep(this.timezone);
 	}
 }
 

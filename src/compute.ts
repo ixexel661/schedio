@@ -45,8 +45,12 @@ function computeNextHour(
 	}
 
 	if (desc.every > 1) {
-		while (candidate.hour % desc.every !== 0) {
-			candidate = candidate.add({ hours: 1 });
+		const epochHours = Math.floor(
+			candidate.toInstant().epochMilliseconds / 3_600_000,
+		);
+		const remainder = epochHours % desc.every;
+		if (remainder !== 0) {
+			candidate = candidate.add({ hours: desc.every - remainder });
 		}
 	}
 

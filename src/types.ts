@@ -30,6 +30,9 @@ export interface ScheduleDescriptor {
 	weekday?: Weekday;
 	atDay?: number; // 1–31, day of month (for month/year units)
 	atMonth?: number; // 1–12, month of year (for year unit)
+	maxRuns?: number; // set by .times(n) — auto-stop after N runs
+	jitterMs?: number; // set by .jitter(ms) — random ±ms spread per tick
+	runNow?: boolean; // set by .runNow() — fire immediately on start
 }
 
 export interface JobHandle {

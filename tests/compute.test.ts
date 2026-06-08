@@ -68,6 +68,21 @@ describe("computeNextRun", () => {
 			const result = computeNextRun({ every: 1, unit: "hour" }, from);
 			expect(result.minute).toBe(0);
 		});
+
+		it("every 5 hours — consecutive intervals are exactly 5 h apart", () => {
+			const from = zdt("2025-01-06T20:00:00.000Z");
+			const first = computeNextRun({ every: 5, unit: "hour" }, from);
+			const second = computeNextRun({ every: 5, unit: "hour" }, first);
+			expect(epochMs(second) - epochMs(first)).toBe(5 * 3_600_000);
+		});
+
+		it("every 5 hours — result is epoch-hour-aligned", () => {
+			const from = zdt("2025-01-06T20:00:00.000Z");
+			const result = computeNextRun({ every: 5, unit: "hour" }, from);
+			const epochHours = Math.floor(epochMs(result) / 3_600_000);
+			expect(epochHours % 5).toBe(0);
+			expect(epochMs(result)).toBeGreaterThan(epochMs(from));
+		});
 	});
 
 	describe("days", () => {
