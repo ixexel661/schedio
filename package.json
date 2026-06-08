@@ -1,14 +1,24 @@
 {
 	"name": "schedio",
 	"version": "0.1.0",
-	"description": "A zero-dependency Node.js scheduling library with a fluent, human-readable API no cron syntax required.",
+	"description": "A zero-dependency Node.js scheduling library with a fluent, human-readable API - no cron syntax required.",
+	"author": "ixexel661",
+	"homepage": "https://github.com/ixexel661/schedio#readme",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ixexel661/schedio.git"
+	},
+	"bugs": {
+		"url": "https://github.com/ixexel661/schedio/issues"
+	},
 	"type": "module",
 	"license": "MIT",
+	"sideEffects": false,
 	"exports": {
 		".": {
 			"import": {
-				"default": "./dist/index.mjs",
-				"types": "./dist/index.d.mts"
+				"types": "./dist/index.d.mts",
+				"default": "./dist/index.mjs"
 			}
 		}
 	},
@@ -29,12 +39,16 @@
 		"format": "biome format --write .",
 		"check": "biome check .",
 		"check:fix": "biome check --write .",
-		"example:seconds": "tsx examples/every-second.ts"
+		"example:seconds": "tsx examples/every-second.ts",
+		"example:minutes": "tsx examples/every-minute-at-15s.ts",
+		"prepublishOnly": "pnpm run build && pnpm run test",
+		"release": "bumpp"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
 		"@types/node": "^25.9.2",
 		"@vitest/coverage-v8": "^4.1.8",
+		"bumpp": "^11.1.0",
 		"tsdown": "^0.22.2",
 		"tsx": "^4.22.4",
 		"typescript": "^6.0.3",

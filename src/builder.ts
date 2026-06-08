@@ -98,30 +98,37 @@ export class UnitStep {
 		private readonly desc: Partial<ScheduleDescriptor> & { every: number },
 	) {}
 
+	second(): RunStep { return this.seconds(); }
 	seconds(): RunStep {
 		return new RunStep({ ...this.desc, unit: "second" });
 	}
 
+	minute(): RunStep { return this.minutes(); }
 	minutes(): RunStep {
 		return new RunStep({ ...this.desc, unit: "minute" });
 	}
 
+	hour(): AtMinuteStep { return this.hours(); }
 	hours(): AtMinuteStep {
 		return new AtMinuteStep({ ...this.desc, unit: "hour" });
 	}
 
+	day(): AtTimeStep { return this.days(); }
 	days(): AtTimeStep {
 		return new AtTimeStep({ ...this.desc, unit: "day" });
 	}
 
+	week(): WeekdayOrAtStep { return this.weeks(); }
 	weeks(): WeekdayOrAtStep {
 		return new WeekdayOrAtStep({ ...this.desc, unit: "week" });
 	}
 
+	month(): AtDayStep { return this.months(); }
 	months(): AtDayStep {
 		return new AtDayStep({ ...this.desc, unit: "month" });
 	}
 
+	year(): AtMonthDayStep { return this.years(); }
 	years(): AtMonthDayStep {
 		return new AtMonthDayStep({ ...this.desc, unit: "year" });
 	}
