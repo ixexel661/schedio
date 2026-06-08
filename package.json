@@ -1,7 +1,7 @@
 {
 	"name": "schedio",
 	"version": "0.1.0",
-	"description": "Fluent scheduling library for Node.js no cron syntax required",
+	"description": "A zero-dependency Node.js scheduling library with a fluent, human-readable API no cron syntax required.",
 	"type": "module",
 	"license": "MIT",
 	"exports": {
