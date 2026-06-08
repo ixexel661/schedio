@@ -16,9 +16,15 @@ export type Weekday =
 	| "saturday"
 	| "sunday";
 
+export interface ScheduleOptions {
+	/** IANA timezone name, e.g. "Europe/Berlin". Defaults to the local system timezone. */
+	timezone?: string;
+}
+
 export interface ScheduleDescriptor {
 	every: number;
 	unit: TimeUnit;
+	timezone?: string;
 	atMinute?: number;
 	atHour?: number;
 	weekday?: Weekday;

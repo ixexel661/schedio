@@ -2,11 +2,10 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig({
 	entry: ["src/index.ts"],
-	format: ["esm", "cjs"],
+	format: ["esm"],
 	platform: "node",
 	dts: true,
 	clean: true,
 	sourcemap: true,
-	shims: true,
 	treeshake: true,
 });

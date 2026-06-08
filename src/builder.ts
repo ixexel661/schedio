@@ -1,5 +1,11 @@
 import { ScheduledJob } from "./scheduler.js";
-import type { Job, JobHandle, ScheduleDescriptor, Weekday } from "./types.js";
+import type {
+	Job,
+	JobHandle,
+	ScheduleDescriptor,
+	ScheduleOptions,
+	Weekday,
+} from "./types.js";
 
 // ── Terminal step ─────────────────────────────────────────────────────────────
 
@@ -150,13 +156,19 @@ export class UnitStep {
 // ── Entry step ────────────────────────────────────────────────────────────────
 
 export class EveryStep {
-	every(n = 1): UnitStep {
-		return new UnitStep({ every: n });
+	private readonly timezone: string | undefined;
+
+	constructor(options?: ScheduleOptions) {
+		this.timezone = options?.timezone;
+	}
+
+	every(n?: number): UnitStep {
+		return new UnitStep({ every: n ?? 1, timezone: this.timezone });
 	}
 }
 
 // ── Public factory ────────────────────────────────────────────────────────────
 
-export function schedule(): EveryStep {
-	return new EveryStep();
+export function schedule(options?: ScheduleOptions): EveryStep {
+	return new EveryStep(options);
 }

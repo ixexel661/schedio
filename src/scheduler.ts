@@ -29,11 +29,17 @@ export class ScheduledJob implements JobHandle {
 
 	private scheduleNext(): void {
 		if (!this._active) return;
-		const nextRun = computeNextRun(this.desc, new Date());
-		const delay = nextRun.getTime() - Date.now();
 
-		if (delay > MAX_TIMEOUT_MS) {
-			// Split into a safe chunk and re-check when it fires
+		// Build a ZonedDateTime from Date.now() so fake timers work in tests.
+		// Temporal.Now.timeZoneId() only returns the tz name, not a time — safe to call always.
+		const tz = this.desc.timezone ?? Temporal.Now.timeZoneId();
+		const nowMs = Date.now();
+		const now =
+			Temporal.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(tz);
+		const nextRun = computeNextRun(this.desc, now);
+		const delayMs = nextRun.toInstant().epochMilliseconds - nowMs;
+
+		if (delayMs > MAX_TIMEOUT_MS) {
 			this.timer = setTimeout(() => {
 				if (this._active) this.scheduleNext();
 			}, MAX_TIMEOUT_MS);
@@ -42,7 +48,7 @@ export class ScheduledJob implements JobHandle {
 				() => {
 					void this.fire();
 				},
-				Math.max(0, delay),
+				Math.max(0, delayMs),
 			);
 		}
 	}

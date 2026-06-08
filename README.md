@@ -16,7 +16,6 @@ schedule().every().monday().at('09:00').run(weeklySync)
 - **TypeScript-first** — invalid chains are caught at compile time
 - **Calendar-aligned** — `every().day().at('08:30')` always fires at 08:30, not 24 h after startup
 - **Zero dependencies** — pure Node.js timers, nothing to audit
-- **Dual ESM + CJS** — works in both module systems
 
 ## Installation
 
@@ -203,22 +202,21 @@ Two runnable examples are included in the [`examples/`](examples/) directory:
 | Script | Description |
 |---|---|
 | [`examples/every-second.ts`](examples/every-second.ts) | Prints the current ISO timestamp once per second |
-| [`examples/every-minute-at-15s.ts`](examples/every-minute-at-15s.ts) | Waits for the next `:15`-second mark, then prints `Hello World` with timestamp every minute |
+
 
 ```bash
 pnpm example:seconds   # Ctrl+C to stop
-pnpm example:minutes   # waits up to 15 s for first output, then fires every minute
 ```
 
 ## Development
 
 ```bash
-pnpm install       # install devDependencies
-pnpm build         # bundle to dist/
-pnpm test          # run tests
-pnpm test:watch    # watch mode
-pnpm test:coverage # coverage report
-pnpm typecheck     # tsc --noEmit
+pnpm install
+pnpm build
+pnpm test
+pnpm test:watch
+pnpm test:coverage
+pnpm typecheck
 ```
 
 ## License

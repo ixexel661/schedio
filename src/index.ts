@@ -3,6 +3,7 @@ export type {
 	Job,
 	JobHandle,
 	ScheduleDescriptor,
+	ScheduleOptions,
 	TimeUnit,
 	Weekday,
 } from "./types.js";
