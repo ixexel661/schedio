@@ -170,6 +170,29 @@ describe("computeNextRun", () => {
 			expect(result.dayOfWeek).toBe(1);
 			expect(result.day).toBe(13); // next Monday
 		});
+
+		it("every(2).weeks().monday() — first fire is ≤2 weeks away, second is exactly 2 weeks later", () => {
+			const from = zdt("2025-01-06T10:00:00.000Z"); // Monday 2025-01-06
+			const desc: ScheduleDescriptor = { every: 2, unit: "week", weekday: "monday", atHour: 9 };
+			const first = computeNextRun(desc, from);
+			const second = computeNextRun(desc, first);
+			expect(first.dayOfWeek).toBe(1); // Monday
+			expect(second.dayOfWeek).toBe(1); // Monday
+			// First fire must be within 2 weeks
+			expect(epochMs(first) - epochMs(from)).toBeLessThanOrEqual(2 * 7 * 86_400_000);
+			// Second fire is exactly 2 weeks after the first
+			expect(epochMs(second) - epochMs(first)).toBe(2 * 7 * 86_400_000);
+		});
+
+		it("every().weeks() without weekday: consecutive fires are exactly 7 days apart", () => {
+			const from = zdt("2025-01-06T00:05:00.000Z"); // Monday
+			const desc: ScheduleDescriptor = { every: 1, unit: "week", atHour: 0, atMinute: 5 };
+			const first = computeNextRun(desc, from);
+			const second = computeNextRun(desc, first);
+			// Consecutive fires must be exactly 7 days apart
+			expect(epochMs(second) - epochMs(first)).toBe(7 * 86_400_000);
+			expect(epochMs(first)).toBeGreaterThan(epochMs(from));
+		});
 	});
 
 	describe("months", () => {
@@ -322,6 +345,21 @@ describe("computeNextRun", () => {
 			expect(result.toInstant().epochMilliseconds).toBe(
 				expectedUtc.epochMilliseconds,
 			);
+		});
+
+		it("every(2).days() in UTC+13 aligns to local calendar days, not UTC days", () => {
+			// Pacific/Apia is UTC+13. Its local midnight is UTC 11:00 the previous day.
+			// Epoch-ms day count would therefore misalign the 2-day parity by 1 day.
+			// With toPlainDate() alignment the parity is based on the local calendar date.
+			const tz = "Pacific/Apia";
+			const from = zdt("2025-01-06T11:00:00.000Z", tz); // Jan 7 00:00 local (UTC+13)
+			const desc: ScheduleDescriptor = { every: 2, unit: "day" };
+			const first = computeNextRun(desc, from);
+			const second = computeNextRun(desc, first);
+			// Consecutive fires must be exactly 2 calendar days apart
+			expect(epochMs(second) - epochMs(first)).toBe(2 * 86_400_000);
+			// Both fires must be in the future relative to from
+			expect(epochMs(first)).toBeGreaterThan(epochMs(from));
 		});
 
 		it("two schedules in different timezones fire at different UTC instants", () => {

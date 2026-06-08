@@ -44,9 +44,10 @@ export class ScheduledJob implements JobHandle {
 		const nextRun = computeNextRun(this.desc, now);
 		const baseDelay = nextRun.toInstant().epochMilliseconds - nowMs;
 
-		const jitter = this.desc.jitterMs
-			? Math.random() * 2 * this.desc.jitterMs - this.desc.jitterMs
-			: 0;
+		const jitter =
+			this.desc.jitterMs != null
+				? Math.random() * 2 * this.desc.jitterMs - this.desc.jitterMs
+				: 0;
 		const delayMs = Math.max(0, baseDelay + jitter);
 
 		if (delayMs > MAX_TIMEOUT_MS) {
@@ -89,12 +90,7 @@ class OneshotJob implements JobHandle {
 		options?: RunOptions,
 	) {
 		this.options = options;
-		this.timer = setTimeout(
-			() => {
-				void this.fire();
-			},
-			Math.max(0, targetMs - Date.now()),
-		);
+		this.armTimer(Math.max(0, targetMs - Date.now()));
 	}
 
 	get active(): boolean {
@@ -106,6 +102,18 @@ class OneshotJob implements JobHandle {
 		if (this.timer !== null) {
 			clearTimeout(this.timer);
 			this.timer = null;
+		}
+	}
+
+	private armTimer(remainingMs: number): void {
+		if (remainingMs > MAX_TIMEOUT_MS) {
+			this.timer = setTimeout(() => {
+				if (this._active) this.armTimer(remainingMs - MAX_TIMEOUT_MS);
+			}, MAX_TIMEOUT_MS);
+		} else {
+			this.timer = setTimeout(() => {
+				void this.fire();
+			}, remainingMs);
 		}
 	}
 

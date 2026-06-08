@@ -75,10 +75,12 @@ function computeNextDay(
 	}
 
 	if (desc.every > 1) {
-		const epochDays = Math.floor(
-			candidate.toInstant().epochMilliseconds / 86_400_000,
-		);
-		const remainder = epochDays % desc.every;
+		const refDate = Temporal.PlainDate.from("1970-01-01");
+		const candidateDate = candidate.toPlainDate();
+		const daysSinceEpoch = refDate.until(candidateDate, {
+			largestUnit: "days",
+		}).days;
+		const remainder = daysSinceEpoch % desc.every;
 		if (remainder !== 0) {
 			candidate = candidate.add({ days: desc.every - remainder });
 		}
@@ -101,7 +103,7 @@ function computeNextWeek(
 	});
 
 	const targetDayOfWeek =
-		desc.weekday != null ? TEMPORAL_WEEKDAY[desc.weekday] : from.dayOfWeek;
+		desc.weekday != null ? TEMPORAL_WEEKDAY[desc.weekday] : candidate.dayOfWeek;
 	const daysUntilTarget = (targetDayOfWeek - candidate.dayOfWeek + 7) % 7;
 	candidate = candidate.add({ days: daysUntilTarget });
 
@@ -109,11 +111,22 @@ function computeNextWeek(
 		candidate = candidate.add({ weeks: desc.every });
 	}
 
-	if (desc.every > 1) {
-		const epochWeeks = Math.floor(
-			candidate.toInstant().epochMilliseconds / (7 * 86_400_000),
-		);
-		const remainder = epochWeeks % desc.every;
+	if (desc.every > 1 && desc.weekday != null) {
+		// Anchor weeks to the first occurrence of the target weekday on or after 1970-01-01.
+		// 1970-01-01 was a Thursday (dayOfWeek 4). daysToRef brings us to the epoch's
+		// first instance of targetDayOfWeek, ensuring every(N).weeks().monday() aligns
+		// to a consistent Monday-based grid rather than the arbitrary Thursday epoch.
+		const epochDow = 4; // Thursday = 4
+		const daysToRef = (targetDayOfWeek - epochDow + 7) % 7;
+		const refDate = Temporal.PlainDate.from("1970-01-01").add({
+			days: daysToRef,
+		});
+		const candidateDate = candidate.toPlainDate();
+		const daysSinceRef = refDate.until(candidateDate, {
+			largestUnit: "days",
+		}).days;
+		const weeksSinceRef = Math.floor(daysSinceRef / 7);
+		const remainder = weeksSinceRef % desc.every;
 		if (remainder !== 0) {
 			candidate = candidate.add({ weeks: desc.every - remainder });
 		}

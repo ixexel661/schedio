@@ -178,8 +178,23 @@ describe("validation — jitter()", () => {
 			RangeError,
 		);
 		expect(() => schedule().every(1).minutes().jitter(-1).run(noop)).toThrow(
-			"schedio: jitter() expects a non-negative number",
+			"schedio: jitter() expects a non-negative finite number",
 		);
+	});
+
+	it("throws on Infinity", () => {
+		expect(() =>
+			schedule().every(1).minutes().jitter(Infinity).run(noop),
+		).toThrow(RangeError);
+		expect(() =>
+			schedule().every(1).minutes().jitter(Infinity).run(noop),
+		).toThrow("schedio: jitter() expects a non-negative finite number");
+	});
+
+	it("throws on NaN", () => {
+		expect(() =>
+			schedule().every(1).minutes().jitter(NaN).run(noop),
+		).toThrow(RangeError);
 	});
 });
 

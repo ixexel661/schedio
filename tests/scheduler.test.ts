@@ -230,6 +230,22 @@ describe("scheduler — once()", () => {
 		await vi.advanceTimersByTimeAsync(0);
 		expect(job).toHaveBeenCalledTimes(1);
 	});
+
+	it("does not fire immediately for a far-future target (>24.8 days)", async () => {
+		const job = vi.fn();
+		// Target is 30 days in the future from FAKE_NOW (2025-01-06)
+		const handle = schedule().once().at("2025-02-05T00:00:00Z").run(job);
+
+		// Advance less than 30 days — job must NOT have fired
+		await vi.advanceTimersByTimeAsync(29 * 24 * 60 * 60 * 1000);
+		expect(job).not.toHaveBeenCalled();
+		expect(handle.active).toBe(true);
+
+		// Advance past the target — now it fires
+		await vi.advanceTimersByTimeAsync(2 * 24 * 60 * 60 * 1000);
+		expect(job).toHaveBeenCalledTimes(1);
+		expect(handle.active).toBe(false);
+	});
 });
 
 describe("scheduler — onError", () => {

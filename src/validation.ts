@@ -67,5 +67,8 @@ export function validateTimes(n: number): void {
 }
 
 export function validateJitter(ms: number): void {
-	assert(ms >= 0, `jitter() expects a non-negative number, got: ${ms}`);
+	assert(
+		Number.isFinite(ms) && ms >= 0,
+		`jitter() expects a non-negative finite number, got: ${ms}`,
+	);
 }
