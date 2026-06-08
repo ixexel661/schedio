@@ -231,3 +231,71 @@ describe("scheduler — once()", () => {
 		expect(job).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("scheduler — onError", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: new Date("2025-01-06T00:00:00.000Z") });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("calls onError when a recurring job throws", async () => {
+		const onError = vi.fn();
+		const err = new Error("boom");
+		const job = vi.fn(() => {
+			throw err;
+		});
+
+		const handle = schedule().every(1).minutes().run(job, { onError });
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(onError).toHaveBeenCalledTimes(1);
+		expect(onError).toHaveBeenCalledWith(err);
+
+		handle.stop();
+	});
+
+	it("schedule continues after a throwing job when onError is set", async () => {
+		const onError = vi.fn();
+		const job = vi.fn(() => {
+			throw new Error("oops");
+		});
+
+		const handle = schedule().every(1).minutes().run(job, { onError });
+
+		await vi.advanceTimersByTimeAsync(3 * 60_000);
+		expect(job).toHaveBeenCalledTimes(3);
+		expect(onError).toHaveBeenCalledTimes(3);
+
+		handle.stop();
+	});
+
+	it("no onError: throwing job is silently ignored and schedule continues", async () => {
+		const job = vi.fn(() => {
+			throw new Error("silent");
+		});
+
+		const handle = schedule().every(1).minutes().run(job);
+
+		await expect(vi.advanceTimersByTimeAsync(2 * 60_000)).resolves.not.toThrow();
+		expect(job).toHaveBeenCalledTimes(2);
+
+		handle.stop();
+	});
+
+	it("onError called when a once() job throws", async () => {
+		const onError = vi.fn();
+		const err = new Error("once-error");
+		const job = vi.fn(() => {
+			throw err;
+		});
+
+		const handle = schedule().once().at("2025-01-06T01:00:00Z").run(job, { onError });
+
+		await vi.advanceTimersByTimeAsync(3_600_000);
+		expect(onError).toHaveBeenCalledTimes(1);
+		expect(onError).toHaveBeenCalledWith(err);
+		expect(handle.active).toBe(false);
+	});
+});

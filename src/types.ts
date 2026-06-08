@@ -35,6 +35,10 @@ export interface ScheduleDescriptor {
 	runNow?: boolean; // set by .runNow() — fire immediately on start
 }
 
+export interface RunOptions {
+	onError?: (err: unknown) => void;
+}
+
 export interface JobHandle {
 	stop(): void;
 	readonly active: boolean;

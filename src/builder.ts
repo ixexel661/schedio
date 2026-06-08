@@ -2,6 +2,7 @@ import { OneshotJob, ScheduledJob } from "./scheduler.js";
 import type {
 	Job,
 	JobHandle,
+	RunOptions,
 	ScheduleDescriptor,
 	ScheduleOptions,
 	Weekday,
@@ -47,8 +48,8 @@ export class OnceFiredStep {
 	constructor(targetMs: number) {
 		this.targetMs = targetMs;
 	}
-	run(job: Job): JobHandle {
-		return new OneshotJob(this.targetMs, job);
+	run(job: Job, options?: RunOptions): JobHandle {
+		return new OneshotJob(this.targetMs, job, options);
 	}
 }
 
@@ -87,8 +88,8 @@ export class RunStep {
 		return new RunStep({ ...this.desc, runNow: true });
 	}
 
-	run(job: Job): JobHandle {
-		return new ScheduledJob(this.desc, job);
+	run(job: Job, options?: RunOptions): JobHandle {
+		return new ScheduledJob(this.desc, job, options);
 	}
 }
 

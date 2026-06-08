@@ -1,5 +1,5 @@
 import { computeNextRun } from "./compute.js";
-import type { Job, JobHandle, ScheduleDescriptor } from "./types.js";
+import type { Job, JobHandle, RunOptions, ScheduleDescriptor } from "./types.js";
 
 // Node.js setTimeout only accepts 32-bit signed integers (~24.8 days max)
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -8,11 +8,14 @@ export class ScheduledJob implements JobHandle {
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private _active = true;
 	private runsLeft: number | null;
+	private readonly options: RunOptions | undefined;
 
 	constructor(
 		private readonly desc: ScheduleDescriptor,
 		private readonly job: Job,
+		options?: RunOptions,
 	) {
+		this.options = options;
 		this.runsLeft = desc.maxRuns ?? null;
 		if (desc.runNow) void this.fire();
 		else this.scheduleNext();
@@ -61,8 +64,8 @@ export class ScheduledJob implements JobHandle {
 		if (!this._active) return;
 		try {
 			await this.job();
-		} catch {
-			// Job errors are intentionally ignored — the schedule continues regardless
+		} catch (err) {
+			this.options?.onError?.(err);
 		} finally {
 			if (this._active) {
 				if (this.runsLeft !== null && --this.runsLeft <= 0) {
@@ -78,11 +81,14 @@ export class ScheduledJob implements JobHandle {
 class OneshotJob implements JobHandle {
 	private timer: ReturnType<typeof setTimeout> | null = null;
 	private _active = true;
+	private readonly options: RunOptions | undefined;
 
 	constructor(
 		private readonly targetMs: number,
 		private readonly job: Job,
+		options?: RunOptions,
 	) {
+		this.options = options;
 		this.timer = setTimeout(
 			() => {
 				void this.fire();
@@ -108,8 +114,8 @@ class OneshotJob implements JobHandle {
 		this._active = false;
 		try {
 			await this.job();
-		} catch {
-			// Job errors are intentionally ignored
+		} catch (err) {
+			this.options?.onError?.(err);
 		}
 	}
 }
