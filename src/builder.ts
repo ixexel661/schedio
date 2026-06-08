@@ -6,6 +6,16 @@ import type {
 	ScheduleOptions,
 	Weekday,
 } from "./types.js";
+import {
+	validateAtMinute,
+	validateAtTime,
+	validateEvery,
+	validateJitter,
+	validateOnDay,
+	validateOnMonthDay,
+	validateTimes,
+	validateTimezone,
+} from "./validation.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +58,13 @@ export class OnceStep {
 		this.timezone = timezone;
 	}
 	at(target: string | Temporal.Instant | Temporal.ZonedDateTime): OnceFiredStep {
-		return new OnceFiredStep(resolveTargetMs(target, this.timezone));
+		try {
+			return new OnceFiredStep(resolveTargetMs(target, this.timezone));
+		} catch {
+			throw new RangeError(
+				`schedio: once().at() received an invalid datetime: ${String(target)}`,
+			);
+		}
 	}
 }
 
@@ -58,10 +74,12 @@ export class RunStep {
 	constructor(protected readonly desc: ScheduleDescriptor) {}
 
 	times(n: number): RunStep {
+		validateTimes(n);
 		return new RunStep({ ...this.desc, maxRuns: n });
 	}
 
 	jitter(ms: number): RunStep {
+		validateJitter(ms);
 		return new RunStep({ ...this.desc, jitterMs: ms });
 	}
 
@@ -78,12 +96,14 @@ export class RunStep {
 
 export class AtMinuteStep extends RunStep {
 	at(minute: number): RunStep {
+		validateAtMinute(minute);
 		return new RunStep({ ...this.desc, atMinute: minute });
 	}
 }
 
 export class AtTimeStep extends RunStep {
 	at(time: string | number): RunStep {
+		validateAtTime(time);
 		if (typeof time === "number") {
 			return new RunStep({ ...this.desc, atHour: time, atMinute: 0 });
 		}
@@ -100,6 +120,7 @@ export class AtTimeStep extends RunStep {
 
 export class AtDayStep extends RunStep {
 	on(day: number): AtTimeStep {
+		validateOnDay(day);
 		return new AtTimeStep({ ...this.desc, atDay: day });
 	}
 }
@@ -109,6 +130,7 @@ export class AtDayStep extends RunStep {
 export class AtMonthDayStep extends RunStep {
 	/** Accept "MM-DD" format, e.g. "03-15" for March 15th. */
 	on(monthDay: string): AtTimeStep {
+		validateOnMonthDay(monthDay);
 		const [m = "1", d = "1"] = monthDay.split("-");
 		return new AtTimeStep({
 			...this.desc,
@@ -223,10 +245,12 @@ export class EveryStep {
 	private readonly timezone: string | undefined;
 
 	constructor(options?: ScheduleOptions) {
+		if (options?.timezone !== undefined) validateTimezone(options.timezone);
 		this.timezone = options?.timezone;
 	}
 
 	every(n?: number): UnitStep {
+		if (n !== undefined) validateEvery(n);
 		return new UnitStep({ every: n ?? 1, timezone: this.timezone });
 	}
 
