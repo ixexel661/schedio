@@ -1,6 +1,6 @@
 {
 	"name": "schedio",
-	"version": "0.3.6",
+	"version": "0.4.0",
 	"description": "A zero-dependency Node.js scheduling library with a fluent, human-readable API - no cron syntax required.",
 	"author": "ixexel661",
 	"homepage": "https://github.com/ixexel661/schedio#readme",
