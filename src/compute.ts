@@ -1,3 +1,4 @@
+import { timesOf } from "./fields.js";
 import type {
 	Ordinal,
 	ScheduleDescriptor,
@@ -24,18 +25,24 @@ const ORDINAL_INDEX: Record<Ordinal, number> = {
 	last: -1,
 };
 
-// The configured times of day, defaulting to the single atHour/atMinute (or midnight).
-function timesOf(desc: ScheduleDescriptor): readonly TimeOfDay[] {
-	if (desc.atTimes && desc.atTimes.length > 0) return desc.atTimes;
-	return [{ hour: desc.atHour ?? 0, minute: desc.atMinute ?? 0 }];
-}
-
 function earliest(
 	candidates: Temporal.ZonedDateTime[],
 ): Temporal.ZonedDateTime {
 	return candidates.reduce((a, b) =>
 		Temporal.ZonedDateTime.compare(a, b) <= 0 ? a : b,
 	);
+}
+
+function withTime(
+	zdt: Temporal.ZonedDateTime,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
+	return zdt.with({
+		hour: time.hour,
+		minute: time.minute,
+		second: 0,
+		millisecond: 0,
+	});
 }
 
 export function computeNextRun(
@@ -64,6 +71,8 @@ function computeNextHour(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
+	// Hour schedules pin only the minute; `atTimes` never reaches here because the
+	// builder's `.hours()` returns AtMinuteStep, whose `.at()` sets atMinute only.
 	const atMinute = desc.atMinute ?? 0;
 	let candidate = from.with({ minute: atMinute, second: 0, millisecond: 0 });
 
@@ -96,12 +105,7 @@ function nextForDay(
 	from: Temporal.ZonedDateTime,
 	time: TimeOfDay,
 ): Temporal.ZonedDateTime {
-	let candidate = from.with({
-		hour: time.hour,
-		minute: time.minute,
-		second: 0,
-		millisecond: 0,
-	});
+	let candidate = withTime(from, time);
 
 	if (Temporal.ZonedDateTime.compare(candidate, from) <= 0) {
 		candidate = candidate.add({ days: desc.every });
@@ -119,7 +123,9 @@ function nextForDay(
 		}
 	}
 
-	return candidate;
+	// Re-resolve the wall-clock time on the final date so a DST spring-forward gap
+	// on the starting day doesn't drift the time on subsequent days.
+	return withTime(candidate, time);
 }
 
 function computeNextWeek(
@@ -143,12 +149,7 @@ function computeNextWeek(
 
 	// No specific weekday: repeat on the same weekday as `from`, no epoch anchoring.
 	const candidates = times.map((t) => {
-		const base = from.with({
-			hour: t.hour,
-			minute: t.minute,
-			second: 0,
-			millisecond: 0,
-		});
+		const base = withTime(from, t);
 		return nextForWeekday(desc, from, base.dayOfWeek, false, t);
 	});
 	return earliest(candidates);
@@ -161,12 +162,7 @@ function nextForWeekday(
 	anchored: boolean,
 	time: TimeOfDay,
 ): Temporal.ZonedDateTime {
-	let candidate = from.with({
-		hour: time.hour,
-		minute: time.minute,
-		second: 0,
-		millisecond: 0,
-	});
+	let candidate = withTime(from, time);
 
 	const daysUntilTarget = (targetDayOfWeek - candidate.dayOfWeek + 7) % 7;
 	candidate = candidate.add({ days: daysUntilTarget });
@@ -196,7 +192,9 @@ function nextForWeekday(
 		}
 	}
 
-	return candidate;
+	// Re-resolve the wall-clock time so a DST spring-forward gap on the starting
+	// day doesn't drift the time on the resulting weekday.
+	return withTime(candidate, time);
 }
 
 function computeNextMonth(

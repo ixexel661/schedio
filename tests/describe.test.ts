@@ -103,9 +103,20 @@ describe("describeSchedule", () => {
 				every: 1,
 				unit: "day",
 				atHour: 9,
+				timezone: "UTC",
 				notBeforeMs: Date.parse("2025-07-01T00:00:00Z"),
 			}),
-		).toContain("from 2025-07-01T00:00:00.000Z");
+		).toContain("from 2025-07-01T00:00:00");
+		// Bound is rendered in the schedule's timezone, not UTC
+		expect(
+			describeSchedule({
+				every: 1,
+				unit: "day",
+				atHour: 9,
+				timezone: "Europe/Berlin",
+				notBeforeMs: Date.parse("2025-07-01T00:00:00Z"),
+			}),
+		).toContain("from 2025-07-01T02:00:00"); // +02:00 in July
 		expect(
 			describeSchedule({ every: 1, unit: "day", atHour: 9, maxRuns: 3 }),
 		).toContain(", 3 times");

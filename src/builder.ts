@@ -1,4 +1,5 @@
 import { describeSchedule } from "./describe.js";
+import { WEEKDAYS, WEEKENDS } from "./fields.js";
 import { OneshotJob, ScheduledJob } from "./scheduler.js";
 import type {
 	Job,
@@ -20,6 +21,7 @@ import {
 	validateOrdinal,
 	validateTimes,
 	validateTimezone,
+	validateWeekday,
 } from "./validation.js";
 
 // Parse a single `.at()` argument (hour number or "HH:MM" string) into a TimeOfDay.
@@ -223,6 +225,7 @@ export class AtDayStep extends RunStep {
 	on(dayOrOrdinal: number | Ordinal, weekday?: Weekday): AtTimeStep {
 		if (weekday !== undefined) {
 			validateOrdinal(dayOrOrdinal);
+			validateWeekday(weekday);
 			return new AtTimeStep({
 				...this.desc,
 				nthWeekday: { ordinal: dayOrOrdinal as Ordinal, weekday },
@@ -231,8 +234,13 @@ export class AtDayStep extends RunStep {
 		if (dayOrOrdinal === "last") {
 			return new AtTimeStep({ ...this.desc, lastDayOfMonth: true });
 		}
-		validateOnDay(dayOrOrdinal as number);
-		return new AtTimeStep({ ...this.desc, atDay: dayOrOrdinal as number });
+		if (typeof dayOrOrdinal === "string") {
+			throw new RangeError(
+				`schedio: on("${dayOrOrdinal}") requires a weekday, e.g. on("${dayOrOrdinal}", "monday")`,
+			);
+		}
+		validateOnDay(dayOrOrdinal);
+		return new AtTimeStep({ ...this.desc, atDay: dayOrOrdinal });
 	}
 }
 
@@ -289,17 +297,11 @@ export class WeekdayOrAtStep extends RunStep {
 
 	/** Fire on every weekday (Monday–Friday). Chain `.at()` to set the time of day. */
 	weekdays(): AtTimeStep {
-		return this.withWeekdays([
-			"monday",
-			"tuesday",
-			"wednesday",
-			"thursday",
-			"friday",
-		]);
+		return this.withWeekdays(WEEKDAYS);
 	}
 	/** Fire on every weekend day (Saturday & Sunday). Chain `.at()` to set the time of day. */
 	weekends(): AtTimeStep {
-		return this.withWeekdays(["saturday", "sunday"]);
+		return this.withWeekdays(WEEKENDS);
 	}
 	/**
 	 * Fire on a specific set of weekdays, e.g. `.on("monday", "wednesday", "friday")`.
@@ -309,7 +311,7 @@ export class WeekdayOrAtStep extends RunStep {
 		return this.withWeekdays(weekdays);
 	}
 
-	private withWeekdays(weekdays: Weekday[]): AtTimeStep {
+	private withWeekdays(weekdays: readonly Weekday[]): AtTimeStep {
 		return new AtTimeStep({ ...this.desc, weekdays });
 	}
 }

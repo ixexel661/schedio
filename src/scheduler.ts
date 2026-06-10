@@ -129,21 +129,19 @@ export class ScheduledJob extends BaseJob {
 			base,
 		).toInstant().epochMilliseconds;
 
-		// .until(): stop once the next fire would pass the bound.
-		if (
-			this.desc.notAfterMs != null &&
-			this.scheduledMs > this.desc.notAfterMs
-		) {
-			this.stop();
-			return;
-		}
-
 		const jitter =
 			this.desc.jitterMs != null
 				? Math.random() * 2 * this.desc.jitterMs - this.desc.jitterMs
 				: 0;
 		// scheduledMs stays un-jittered (drift base); the timer fires at the jittered target.
 		const targetMs = this.scheduledMs + jitter;
+
+		// .until(): stop once the actual (jittered) fire would pass the bound.
+		if (this.desc.notAfterMs != null && targetMs > this.desc.notAfterMs) {
+			this.stop();
+			return;
+		}
+
 		this.nextRunMs = targetMs;
 		this.armTimer(targetMs);
 	}

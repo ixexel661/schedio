@@ -85,3 +85,20 @@ export function validateOrdinal(ordinal: unknown): void {
 		`on() expects an ordinal (first|second|third|fourth|last), got: ${String(ordinal)}`,
 	);
 }
+
+const WEEKDAY_NAMES = [
+	"monday",
+	"tuesday",
+	"wednesday",
+	"thursday",
+	"friday",
+	"saturday",
+	"sunday",
+];
+
+export function validateWeekday(weekday: unknown): void {
+	assert(
+		typeof weekday === "string" && WEEKDAY_NAMES.includes(weekday),
+		`on() expects a weekday (monday … sunday), got: ${String(weekday)}`,
+	);
+}

@@ -664,3 +664,70 @@ describe("computeNextRun", () => {
 		});
 	});
 });
+
+describe("computeNextRun — multiple times × every>1 alignment", () => {
+	it("every(2).days().at('09:00','17:00') keeps both times on the same 2-day grid", () => {
+		const desc: ScheduleDescriptor = {
+			every: 2,
+			unit: "day",
+			atTimes: [
+				{ hour: 9, minute: 0 },
+				{ hour: 17, minute: 0 },
+			],
+		};
+		// Start before 09:00 so the next aligned day carries both times.
+		const from = zdt("2025-01-06T00:30:00.000Z");
+		const f1 = computeNextRun(desc, from); // 09:00 on the aligned day
+		const f2 = computeNextRun(desc, f1); // 17:00 on the SAME date
+		const f3 = computeNextRun(desc, f2); // 09:00 two days later
+
+		expect(f1.hour).toBe(9);
+		expect(f2.hour).toBe(17);
+		expect(f2.toPlainDate().equals(f1.toPlainDate())).toBe(true);
+		expect(f3.hour).toBe(9);
+		expect(
+			f1.toPlainDate().until(f3.toPlainDate(), { largestUnit: "days" }).days,
+		).toBe(2);
+	});
+});
+
+describe("computeNextRun — nth weekday ordinals", () => {
+	const nth = (ordinal: string, weekday: string): ScheduleDescriptor =>
+		({
+			every: 1,
+			unit: "month",
+			nthWeekday: { ordinal, weekday },
+		}) as ScheduleDescriptor;
+
+	const jan = zdt("2025-01-01T00:00:00.000Z");
+
+	it("second/third/fourth Monday of Jan 2025 → 13, 20, 27", () => {
+		expect(computeNextRun(nth("second", "monday"), jan).day).toBe(13);
+		expect(computeNextRun(nth("third", "monday"), jan).day).toBe(20);
+		expect(computeNextRun(nth("fourth", "monday"), jan).day).toBe(27);
+	});
+
+	it("first Sunday of Jan 2025 → Jan 5 (offset within the first week)", () => {
+		const r = computeNextRun(nth("first", "sunday"), jan);
+		expect(r.day).toBe(5);
+		expect(r.dayOfWeek).toBe(7);
+	});
+});
+
+describe("computeNextRun — DST", () => {
+	it("daily schedule does not drift past a spring-forward gap", () => {
+		const tz = "America/New_York";
+		const desc: ScheduleDescriptor = {
+			every: 1,
+			unit: "day",
+			atHour: 2,
+			atMinute: 30,
+		};
+		// 2025-03-09 03:30 EDT — the moment right after the 02:00→03:00 gap.
+		// The next day must fire at the configured 02:30 local, not drift to 03:30.
+		const fromGapDay = zdt("2025-03-09T07:30:00.000Z", tz);
+		const next = computeNextRun(desc, fromGapDay);
+		expect(next.hour).toBe(2);
+		expect(next.minute).toBe(30);
+	});
+});

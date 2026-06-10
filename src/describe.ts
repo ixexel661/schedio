@@ -1,3 +1,4 @@
+import { timesOf, WEEKDAYS, WEEKENDS } from "./fields.js";
 import type { ScheduleDescriptor, TimeOfDay, Weekday } from "./types.js";
 
 const WEEKDAY_LABEL: Record<Weekday, string> = {
@@ -10,16 +11,8 @@ const WEEKDAY_LABEL: Record<Weekday, string> = {
 	sunday: "Sunday",
 };
 
-const WEEKDAYS_SET = ["monday", "tuesday", "wednesday", "thursday", "friday"];
-const WEEKENDS_SET = ["saturday", "sunday"];
-
 function pad(n: number): string {
 	return String(n).padStart(2, "0");
-}
-
-function timesOf(desc: ScheduleDescriptor): readonly TimeOfDay[] {
-	if (desc.atTimes && desc.atTimes.length > 0) return desc.atTimes;
-	return [{ hour: desc.atHour ?? 0, minute: desc.atMinute ?? 0 }];
 }
 
 function formatTimes(times: readonly TimeOfDay[]): string {
@@ -43,8 +36,8 @@ function describeWeek(desc: ScheduleDescriptor): string {
 		return `${interval(desc.every, "week")} at ${times}`;
 	}
 
-	const isWeekdays = sameSet(days, WEEKDAYS_SET);
-	const isWeekends = sameSet(days, WEEKENDS_SET);
+	const isWeekdays = sameSet(days, WEEKDAYS);
+	const isWeekends = sameSet(days, WEEKENDS);
 	const names = days.map((d) => WEEKDAY_LABEL[d]).join(", ");
 
 	if (desc.every === 1) {
@@ -98,12 +91,15 @@ export function describeSchedule(desc: ScheduleDescriptor): string {
 	}
 
 	if (desc.timezone) s += ` (${desc.timezone})`;
-	if (desc.notBeforeMs != null) {
-		s += ` from ${new Date(desc.notBeforeMs).toISOString()}`;
-	}
-	if (desc.notAfterMs != null) {
-		s += ` until ${new Date(desc.notAfterMs).toISOString()}`;
-	}
+	// Render bounds in the schedule's timezone so the line doesn't mix zones.
+	const tz = desc.timezone ?? Temporal.Now.timeZoneId();
+	const fmtBound = (ms: number): string =>
+		Temporal.Instant.fromEpochMilliseconds(ms)
+			.toZonedDateTimeISO(tz)
+			.toPlainDateTime()
+			.toString();
+	if (desc.notBeforeMs != null) s += ` from ${fmtBound(desc.notBeforeMs)}`;
+	if (desc.notAfterMs != null) s += ` until ${fmtBound(desc.notAfterMs)}`;
 	if (desc.maxRuns != null) s += `, ${desc.maxRuns} times`;
 	return s;
 }

@@ -231,3 +231,45 @@ describe("validation — once().at()", () => {
 		).not.toThrow();
 	});
 });
+
+describe("validation — months().on() ordinals/weekdays", () => {
+	it("on(ordinal) without a weekday throws a clear RangeError", () => {
+		expect(() =>
+			schedule()
+				.every()
+				.months()
+				.on("first" as never)
+				.run(noop),
+		).toThrow(RangeError);
+		expect(() =>
+			schedule()
+				.every()
+				.months()
+				.on("first" as never)
+				.run(noop),
+		).toThrow("requires a weekday");
+	});
+
+	it("on(ordinal, badWeekday) throws a RangeError", () => {
+		expect(() =>
+			schedule()
+				.every()
+				.months()
+				.on("first", "funday" as never)
+				.run(noop),
+		).toThrow(RangeError);
+		expect(() =>
+			schedule()
+				.every()
+				.months()
+				.on("first", "funday" as never)
+				.run(noop),
+		).toThrow("schedio:");
+	});
+
+	it("on(ordinal, weekday) is valid", () => {
+		expect(() =>
+			schedule().every().months().on("first", "monday").run(noop),
+		).not.toThrow();
+	});
+});

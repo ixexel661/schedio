@@ -639,6 +639,22 @@ describe("scheduler — observability (lastRun / runCount)", () => {
 		expect(handle.runCount).toBe(2);
 		expect(handle.active).toBe(false);
 	});
+
+	it("runCount/lastRun count throwing runs too", async () => {
+		const job = vi.fn(() => {
+			throw new Error("boom");
+		});
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(job, { onError: () => {} });
+
+		await vi.advanceTimersByTimeAsync(2 * 60_000);
+		expect(handle.runCount).toBe(2);
+		expect(handle.lastRun?.getTime()).toBe(FAKE_NOW.getTime() + 120_000);
+
+		handle.stop();
+	});
 });
 
 describe("scheduler — date bounds (starting / until)", () => {
@@ -685,6 +701,26 @@ describe("scheduler — date bounds (starting / until)", () => {
 		await vi.advanceTimersByTimeAsync(10 * 24 * 60 * 60 * 1000);
 		expect(job).toHaveBeenCalledTimes(2); // Jan 7 + Jan 8
 		expect(handle.active).toBe(false);
+	});
+
+	it("until() accounts for jitter: a slot whose jittered fire exceeds the bound does not fire", async () => {
+		const rand = vi.spyOn(Math, "random").mockReturnValue(1); // max positive jitter
+		const job = vi.fn();
+		// First daily slot is Jan 7 00:00Z; +30s jitter pushes the real fire to 00:00:30,
+		// which is past the bound at 00:00:15 → must not fire.
+		const handle = schedule({ timezone: "UTC" })
+			.every()
+			.day()
+			.at(0)
+			.jitter(30_000)
+			.until("2025-01-07T00:00:15Z")
+			.run(job);
+
+		expect(handle.active).toBe(false);
+		await vi.advanceTimersByTimeAsync(2 * 24 * 60 * 60 * 1000);
+		expect(job).not.toHaveBeenCalled();
+
+		rand.mockRestore();
 	});
 
 	it("starting()/until() reject an invalid datetime with a RangeError carrying cause", () => {

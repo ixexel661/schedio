@@ -122,6 +122,12 @@ schedule().every().weekends().at('10:00').run(job)
 schedule().every().weeks().on('monday', 'wednesday', 'friday').at('09:00').run(job)
 ```
 
+> **Note:** With `every(N).weeks()` and **N > 1**, each listed weekday runs on its
+> *own* N-week cycle (anchored independently), so the days are not guaranteed to fall
+> in the same week. For example `every(2).weeks().on('monday', 'thursday')` fires on a
+> biweekly Monday cadence and a biweekly Thursday cadence that may be offset from each
+> other. For "both days in the same fortnight", use `every(1)` or two schedules.
+
 ### Monthly
 
 ```ts
@@ -198,6 +204,9 @@ schedule().every(30).seconds().times(5).run(job)  // fires 5 times, then stops
 schedule().every().day().at('08:30').runNow().run(job)  // fires now + every day at 08:30
 ```
 
+> **Note:** `.runNow()` fires once immediately on start, *regardless* of `.starting()`
+> or `.until()` — those bounds only apply to the recurring fires that follow.
+
 #### `.jitter(ms)` — add random spread to avoid peaks
 
 ```ts
@@ -222,7 +231,12 @@ schedule().every().day().at('09:00').until('2026-12-31T23:59:59Z').run(job)
 ```
 
 `.starting()` / `.until()` accept the same datetime inputs as `once().at()`. The schedule
-ends as soon as the next fire would pass the `until` bound.
+ends as soon as the next fire (including any `.jitter()`) would pass the `until` bound.
+
+> **Note:** For interval units without a calendar grid (`seconds`, `minutes`, `hours`),
+> `.starting(T)` makes the first fire happen one interval *after* `T` (e.g.
+> `every(30).seconds().starting(T)` first fires at ≈ `T + 30s`), not exactly at `T`.
+> Calendar units (`day`/`week`/`month`/`year`) fire at the first matching slot on or after `T`.
 
 ### Error handling
 
