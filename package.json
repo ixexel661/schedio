@@ -40,7 +40,6 @@
 		"check": "biome check .",
 		"check:fix": "biome check --write .",
 		"example:seconds": "tsx examples/every-second.ts",
-		"example:minutes": "tsx examples/every-minute-at-15s.ts",
 		"prepublishOnly": "pnpm run build && pnpm run test",
 		"release": "bumpp"
 	},
