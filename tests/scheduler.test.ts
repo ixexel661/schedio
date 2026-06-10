@@ -409,3 +409,336 @@ describe("scheduler — onError", () => {
 		expect(handle.active).toBe(false);
 	});
 });
+
+describe("scheduler — nextRun", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("exposes the next fire time before the first run", () => {
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {});
+		expect(handle.nextRun).toBeInstanceOf(Date);
+		expect(handle.nextRun?.getTime()).toBe(FAKE_NOW.getTime() + 60_000);
+		handle.stop();
+	});
+
+	it("returns null after stop()", () => {
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {});
+		handle.stop();
+		expect(handle.nextRun).toBeNull();
+	});
+
+	it("advances after each fire", async () => {
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {});
+		expect(handle.nextRun?.getTime()).toBe(FAKE_NOW.getTime() + 60_000);
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(handle.nextRun?.getTime()).toBe(FAKE_NOW.getTime() + 120_000);
+
+		handle.stop();
+	});
+
+	it("once(): shows the target, then null after firing", async () => {
+		const handle = schedule()
+			.once()
+			.at("2025-01-06T01:00:00Z")
+			.run(() => {});
+		expect(handle.nextRun?.toISOString()).toBe("2025-01-06T01:00:00.000Z");
+
+		await vi.advanceTimersByTimeAsync(3_600_000);
+		expect(handle.nextRun).toBeNull();
+	});
+});
+
+describe("scheduler — unref", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.useRealTimers();
+	});
+
+	it("calls unref on the timer only when unref: true", () => {
+		vi.useRealTimers();
+		const unrefSpy = vi.fn();
+		const real = globalThis.setTimeout;
+		const stub = ((...a: Parameters<typeof globalThis.setTimeout>) => {
+			const t = real(...a);
+			Object.defineProperty(t, "unref", {
+				value: unrefSpy,
+				configurable: true,
+			});
+			return t;
+		}) as unknown as typeof globalThis.setTimeout;
+		const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(stub);
+
+		// Long interval so the timer never fires during the test.
+		const a = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {}, { unref: true });
+		expect(unrefSpy).toHaveBeenCalled();
+		a.stop();
+
+		unrefSpy.mockClear();
+		const b = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {});
+		expect(unrefSpy).not.toHaveBeenCalled();
+		b.stop();
+
+		spy.mockRestore();
+	});
+});
+
+describe("scheduler — AbortSignal", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("aborting before the first fire prevents execution", async () => {
+		const ac = new AbortController();
+		const job = vi.fn();
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(job, { signal: ac.signal });
+
+		ac.abort();
+		expect(handle.active).toBe(false);
+
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(job).not.toHaveBeenCalled();
+	});
+
+	it("aborting after the first fire stops the schedule", async () => {
+		const ac = new AbortController();
+		const job = vi.fn();
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(job, { signal: ac.signal });
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(job).toHaveBeenCalledTimes(1);
+
+		ac.abort();
+		expect(handle.active).toBe(false);
+
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(job).toHaveBeenCalledTimes(1);
+	});
+
+	it("an already-aborted signal: the job never runs", async () => {
+		const job = vi.fn();
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(job, { signal: AbortSignal.abort() });
+
+		expect(handle.active).toBe(false);
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(job).not.toHaveBeenCalled();
+	});
+
+	it("once(): aborting before the target prevents the one-shot", async () => {
+		const ac = new AbortController();
+		const job = vi.fn();
+		const handle = schedule()
+			.once()
+			.at("2025-01-06T01:00:00Z")
+			.run(job, { signal: ac.signal });
+
+		ac.abort();
+		expect(handle.active).toBe(false);
+
+		await vi.advanceTimersByTimeAsync(3_600_000);
+		expect(job).not.toHaveBeenCalled();
+	});
+});
+
+describe("scheduler — long delays (MAX_TIMEOUT chunking)", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("monthly schedule whose first delay exceeds MAX_TIMEOUT fires on the right date, not a month later", async () => {
+		// FAKE_NOW = 2025-01-06; next 1st-of-month is Feb 1, ~26 days away (> 24.8d MAX_TIMEOUT)
+		const job = vi.fn();
+		const handle = schedule({ timezone: "UTC" })
+			.every()
+			.months()
+			.on(1)
+			.run(job);
+
+		// Must target Feb 1, not skip ahead to March 1
+		expect(handle.nextRun?.toISOString()).toBe("2025-02-01T00:00:00.000Z");
+
+		const msToFeb1 = Date.parse("2025-02-01T00:00:00Z") - FAKE_NOW.getTime();
+		await vi.advanceTimersByTimeAsync(msToFeb1 - 1_000);
+		expect(job).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(job).toHaveBeenCalledTimes(1);
+
+		handle.stop();
+	});
+});
+
+describe("scheduler — observability (lastRun / runCount)", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("runCount increments and lastRun tracks each fire", async () => {
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.run(() => {});
+		expect(handle.runCount).toBe(0);
+		expect(handle.lastRun).toBeNull();
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(handle.runCount).toBe(1);
+		expect(handle.lastRun?.getTime()).toBe(FAKE_NOW.getTime() + 60_000);
+
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(handle.runCount).toBe(2);
+		expect(handle.lastRun?.getTime()).toBe(FAKE_NOW.getTime() + 120_000);
+
+		handle.stop();
+	});
+
+	it("runCount reflects the final count after times(n) is exhausted", async () => {
+		const handle = schedule()
+			.every(1)
+			.minutes()
+			.times(2)
+			.run(() => {});
+		await vi.advanceTimersByTimeAsync(3 * 60_000);
+		expect(handle.runCount).toBe(2);
+		expect(handle.active).toBe(false);
+	});
+});
+
+describe("scheduler — date bounds (starting / until)", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("starting(): does not fire before the start date", async () => {
+		const job = vi.fn();
+		// FAKE_NOW = 2025-01-06; start a day later
+		const handle = schedule({ timezone: "UTC" })
+			.every()
+			.day()
+			.at(0)
+			.starting("2025-01-08T00:00:00Z")
+			.run(job);
+
+		expect(handle.nextRun?.toISOString()).toBe("2025-01-08T00:00:00.000Z");
+
+		// Advance past Jan 7 midnight — must NOT fire (before start)
+		await vi.advanceTimersByTimeAsync(1 * 24 * 60 * 60 * 1000);
+		expect(job).not.toHaveBeenCalled();
+
+		// Reach Jan 8 midnight — fires
+		await vi.advanceTimersByTimeAsync(1 * 24 * 60 * 60 * 1000);
+		expect(job).toHaveBeenCalledTimes(1);
+
+		handle.stop();
+	});
+
+	it("until(): stops once the next fire would pass the bound", async () => {
+		const job = vi.fn();
+		// Daily at midnight, until Jan 8 12:00 → fires Jan 7 and Jan 8, then stops
+		const handle = schedule({ timezone: "UTC" })
+			.every()
+			.day()
+			.at(0)
+			.until("2025-01-08T12:00:00Z")
+			.run(job);
+
+		await vi.advanceTimersByTimeAsync(10 * 24 * 60 * 60 * 1000);
+		expect(job).toHaveBeenCalledTimes(2); // Jan 7 + Jan 8
+		expect(handle.active).toBe(false);
+	});
+
+	it("starting()/until() reject an invalid datetime with a RangeError carrying cause", () => {
+		expect(() =>
+			schedule()
+				.every()
+				.day()
+				.starting("not-a-date")
+				.run(() => {}),
+		).toThrow(RangeError);
+		let caught: unknown;
+		try {
+			schedule()
+				.every()
+				.day()
+				.until("nope")
+				.run(() => {});
+		} catch (e) {
+			caught = e;
+		}
+		expect(caught).toBeInstanceOf(RangeError);
+		expect((caught as RangeError & { cause?: unknown }).cause).toBeTruthy();
+	});
+});
+
+describe("scheduler — toString()", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ now: FAKE_NOW });
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("describes a recurring schedule", () => {
+		const handle = schedule({ timezone: "UTC" })
+			.every()
+			.day()
+			.at("08:30")
+			.run(() => {});
+		expect(String(handle)).toBe("every day at 08:30 (UTC)");
+		handle.stop();
+	});
+
+	it("describes a one-shot schedule", () => {
+		const handle = schedule()
+			.once()
+			.at("2025-06-15T12:00:00Z")
+			.run(() => {});
+		expect(String(handle)).toBe("once at 2025-06-15T12:00:00.000Z");
+		handle.stop();
+	});
+
+	it("RunStep can be described before running", () => {
+		const step = schedule().every(5).minutes();
+		expect(String(step)).toBe("every 5 minutes");
+	});
+});

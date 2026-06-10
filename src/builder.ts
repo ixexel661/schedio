@@ -1,10 +1,13 @@
+import { describeSchedule } from "./describe.js";
 import { OneshotJob, ScheduledJob } from "./scheduler.js";
 import type {
 	Job,
 	JobHandle,
+	Ordinal,
 	RunOptions,
 	ScheduleDescriptor,
 	ScheduleOptions,
+	TimeOfDay,
 	Weekday,
 } from "./types.js";
 import {
@@ -14,9 +17,17 @@ import {
 	validateJitter,
 	validateOnDay,
 	validateOnMonthDay,
+	validateOrdinal,
 	validateTimes,
 	validateTimezone,
 } from "./validation.js";
+
+// Parse a single `.at()` argument (hour number or "HH:MM" string) into a TimeOfDay.
+function parseTimeOfDay(time: string | number): TimeOfDay {
+	if (typeof time === "number") return { hour: time, minute: 0 };
+	const [h = "0", m = "0"] = time.split(":");
+	return { hour: parseInt(h, 10), minute: parseInt(m, 10) };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +50,22 @@ function resolveTargetMs(
 	const tz = timezone ?? Temporal.Now.timeZoneId();
 	return Temporal.ZonedDateTime.from(`${target}[${tz}]`).toInstant()
 		.epochMilliseconds;
+}
+
+// Resolve a `.starting()` / `.until()` bound, wrapping parse errors with context.
+function parseBoundMs(
+	target: string | Temporal.Instant | Temporal.ZonedDateTime,
+	timezone: string | undefined,
+	method: "starting" | "until",
+): number {
+	try {
+		return resolveTargetMs(target, timezone);
+	} catch (e) {
+		throw new RangeError(
+			`schedio: ${method}() received an invalid datetime: ${String(target)}`,
+			{ cause: e },
+		);
+	}
 }
 
 // ── once() steps ──────────────────────────────────────────────────────────────
@@ -106,6 +133,30 @@ export class RunStep {
 	}
 
 	/**
+	 * Don't fire before the given datetime. The first run is the first scheduled
+	 * slot at or after it. Accepts the same inputs as `once().at()`.
+	 */
+	starting(
+		target: string | Temporal.Instant | Temporal.ZonedDateTime,
+	): RunStep {
+		return new RunStep({
+			...this.desc,
+			notBeforeMs: parseBoundMs(target, this.desc.timezone, "starting"),
+		});
+	}
+
+	/**
+	 * Stop the schedule once the next fire would be after the given datetime.
+	 * Accepts the same inputs as `once().at()`.
+	 */
+	until(target: string | Temporal.Instant | Temporal.ZonedDateTime): RunStep {
+		return new RunStep({
+			...this.desc,
+			notAfterMs: parseBoundMs(target, this.desc.timezone, "until"),
+		});
+	}
+
+	/**
 	 * Register the job and start the schedule. Returns a handle with `stop()` and `active`.
 	 *
 	 * @param job - Async or sync function to execute on each tick.
@@ -113,6 +164,11 @@ export class RunStep {
 	 */
 	run(job: Job, options?: RunOptions): JobHandle {
 		return new ScheduledJob(this.desc, job, options);
+	}
+
+	/** A human-readable description of the schedule, e.g. `"every day at 08:30"`. */
+	toString(): string {
+		return describeSchedule(this.desc);
 	}
 }
 
@@ -128,24 +184,23 @@ export class AtMinuteStep extends RunStep {
 
 export class AtTimeStep extends RunStep {
 	/**
-	 * Fire at the given time of day.
+	 * Fire at one or more times of day.
 	 *
 	 * - **Number** — hour in 24 h format (0–23), e.g. `at(9)` → 09:00.
 	 * - **String** — `"HH:MM"` format, e.g. `at("09:30")`. Single-digit hours are accepted.
 	 *
-	 * Defaults to midnight (`00:00`) if omitted.
+	 * Pass several values to fire multiple times a day, e.g. `at("09:00", "17:00")`;
+	 * the schedule runs at whichever listed time comes next. Defaults to midnight
+	 * (`00:00`) if omitted.
 	 */
-	at(time: string | number): RunStep {
-		validateAtTime(time);
-		if (typeof time === "number") {
-			return new RunStep({ ...this.desc, atHour: time, atMinute: 0 });
+	at(...times: (string | number)[]): RunStep {
+		for (const t of times) validateAtTime(t);
+		// Single time keeps the atHour/atMinute representation (back-compat).
+		if (times.length <= 1) {
+			const { hour, minute } = parseTimeOfDay(times[0] ?? 0);
+			return new RunStep({ ...this.desc, atHour: hour, atMinute: minute });
 		}
-		const [h = "0", m = "0"] = time.split(":");
-		return new RunStep({
-			...this.desc,
-			atHour: parseInt(h, 10),
-			atMinute: parseInt(m, 10),
-		});
+		return new RunStep({ ...this.desc, atTimes: times.map(parseTimeOfDay) });
 	}
 }
 
@@ -157,9 +212,27 @@ export class AtDayStep extends RunStep {
 	 * Days that don't exist in a given month are clamped to the last valid day
 	 * (e.g. day 31 in February → February 28/29).
 	 */
-	on(day: number): AtTimeStep {
-		validateOnDay(day);
-		return new AtTimeStep({ ...this.desc, atDay: day });
+	on(day: number): AtTimeStep;
+	/** Fire on the last day of every month. */
+	on(day: "last"): AtTimeStep;
+	/**
+	 * Fire on the nth weekday of the month, e.g. `.on("last", "friday")` or
+	 * `.on("first", "monday")`.
+	 */
+	on(ordinal: Ordinal, weekday: Weekday): AtTimeStep;
+	on(dayOrOrdinal: number | Ordinal, weekday?: Weekday): AtTimeStep {
+		if (weekday !== undefined) {
+			validateOrdinal(dayOrOrdinal);
+			return new AtTimeStep({
+				...this.desc,
+				nthWeekday: { ordinal: dayOrOrdinal as Ordinal, weekday },
+			});
+		}
+		if (dayOrOrdinal === "last") {
+			return new AtTimeStep({ ...this.desc, lastDayOfMonth: true });
+		}
+		validateOnDay(dayOrOrdinal as number);
+		return new AtTimeStep({ ...this.desc, atDay: dayOrOrdinal as number });
 	}
 }
 
@@ -187,35 +260,57 @@ export class AtMonthDayStep extends RunStep {
 export class WeekdayOrAtStep extends RunStep {
 	/** Fire every Monday. Chain `.at()` to set the time of day. */
 	monday(): AtTimeStep {
-		return this.withWeekday("monday");
+		return this.withWeekdays(["monday"]);
 	}
 	/** Fire every Tuesday. Chain `.at()` to set the time of day. */
 	tuesday(): AtTimeStep {
-		return this.withWeekday("tuesday");
+		return this.withWeekdays(["tuesday"]);
 	}
 	/** Fire every Wednesday. Chain `.at()` to set the time of day. */
 	wednesday(): AtTimeStep {
-		return this.withWeekday("wednesday");
+		return this.withWeekdays(["wednesday"]);
 	}
 	/** Fire every Thursday. Chain `.at()` to set the time of day. */
 	thursday(): AtTimeStep {
-		return this.withWeekday("thursday");
+		return this.withWeekdays(["thursday"]);
 	}
 	/** Fire every Friday. Chain `.at()` to set the time of day. */
 	friday(): AtTimeStep {
-		return this.withWeekday("friday");
+		return this.withWeekdays(["friday"]);
 	}
 	/** Fire every Saturday. Chain `.at()` to set the time of day. */
 	saturday(): AtTimeStep {
-		return this.withWeekday("saturday");
+		return this.withWeekdays(["saturday"]);
 	}
 	/** Fire every Sunday. Chain `.at()` to set the time of day. */
 	sunday(): AtTimeStep {
-		return this.withWeekday("sunday");
+		return this.withWeekdays(["sunday"]);
 	}
 
-	private withWeekday(weekday: Weekday): AtTimeStep {
-		return new AtTimeStep({ ...this.desc, weekday });
+	/** Fire on every weekday (Monday–Friday). Chain `.at()` to set the time of day. */
+	weekdays(): AtTimeStep {
+		return this.withWeekdays([
+			"monday",
+			"tuesday",
+			"wednesday",
+			"thursday",
+			"friday",
+		]);
+	}
+	/** Fire on every weekend day (Saturday & Sunday). Chain `.at()` to set the time of day. */
+	weekends(): AtTimeStep {
+		return this.withWeekdays(["saturday", "sunday"]);
+	}
+	/**
+	 * Fire on a specific set of weekdays, e.g. `.on("monday", "wednesday", "friday")`.
+	 * The schedule fires on whichever listed day comes next.
+	 */
+	on(...weekdays: Weekday[]): AtTimeStep {
+		return this.withWeekdays(weekdays);
+	}
+
+	private withWeekdays(weekdays: Weekday[]): AtTimeStep {
+		return new AtTimeStep({ ...this.desc, weekdays });
 	}
 }
 
@@ -316,6 +411,14 @@ export class UnitStep {
 	/** Shorthand for `.weeks().sunday()` — fire every Sunday. */
 	sunday(): AtTimeStep {
 		return this.weeks().sunday();
+	}
+	/** Shorthand for `.weeks().weekdays()` — fire every weekday (Mon–Fri). */
+	weekdays(): AtTimeStep {
+		return this.weeks().weekdays();
+	}
+	/** Shorthand for `.weeks().weekends()` — fire every weekend day (Sat & Sun). */
+	weekends(): AtTimeStep {
+		return this.weeks().weekends();
 	}
 }
 

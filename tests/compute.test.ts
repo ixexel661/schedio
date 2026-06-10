@@ -131,7 +131,7 @@ describe("computeNextRun", () => {
 			const desc: ScheduleDescriptor = {
 				every: 1,
 				unit: "week",
-				weekday: "monday",
+				weekdays: ["monday"],
 				atHour: 9,
 				atMinute: 0,
 			};
@@ -147,7 +147,7 @@ describe("computeNextRun", () => {
 			const desc: ScheduleDescriptor = {
 				every: 1,
 				unit: "week",
-				weekday: "monday",
+				weekdays: ["monday"],
 				atHour: 9,
 				atMinute: 0,
 			};
@@ -162,7 +162,7 @@ describe("computeNextRun", () => {
 			const desc: ScheduleDescriptor = {
 				every: 1,
 				unit: "week",
-				weekday: "monday",
+				weekdays: ["monday"],
 				atHour: 9,
 				atMinute: 0,
 			};
@@ -176,7 +176,7 @@ describe("computeNextRun", () => {
 			const desc: ScheduleDescriptor = {
 				every: 2,
 				unit: "week",
-				weekday: "monday",
+				weekdays: ["monday"],
 				atHour: 9,
 			};
 			const first = computeNextRun(desc, from);
@@ -204,6 +204,107 @@ describe("computeNextRun", () => {
 			// Consecutive fires must be exactly 7 days apart
 			expect(epochMs(second) - epochMs(first)).toBe(7 * 86_400_000);
 			expect(epochMs(first)).toBeGreaterThan(epochMs(from));
+		});
+	});
+
+	describe("weeks — multiple weekdays", () => {
+		const WEEKDAYS = [
+			"monday",
+			"tuesday",
+			"wednesday",
+			"thursday",
+			"friday",
+		] as const;
+
+		it("weekdays() from Saturday → next Monday", () => {
+			// 2025-01-11 is a Saturday
+			const from = zdt("2025-01-11T10:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: WEEKDAYS,
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(1); // Monday
+			expect(result.hour).toBe(9);
+		});
+
+		it("weekdays() from Wednesday before the time → same Wednesday", () => {
+			// 2025-01-08 is a Wednesday
+			const from = zdt("2025-01-08T08:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: WEEKDAYS,
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(3); // Wednesday
+			expect(result.day).toBe(8);
+		});
+
+		it("weekdays() from Wednesday after the time → Thursday", () => {
+			const from = zdt("2025-01-08T10:00:00.000Z"); // Wed after 09:00
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: WEEKDAYS,
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(4); // Thursday
+		});
+
+		it("weekdays() never lands on a weekend", () => {
+			const from = zdt("2025-01-10T10:00:00.000Z"); // Friday after 09:00
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: WEEKDAYS,
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			// Next must be Monday, skipping Sat/Sun
+			expect(result.dayOfWeek).toBe(1);
+		});
+
+		it("weekends() from Monday → Saturday", () => {
+			const from = zdt("2025-01-06T10:00:00.000Z"); // Monday
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: ["saturday", "sunday"],
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(6); // Saturday
+		});
+
+		it("on('monday','wednesday','friday') from Tuesday → Wednesday", () => {
+			const from = zdt("2025-01-07T10:00:00.000Z"); // Tuesday
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: ["monday", "wednesday", "friday"],
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(3); // Wednesday
+		});
+
+		it("every(2) with multiple weekdays still picks the soonest valid day", () => {
+			const from = zdt("2025-01-07T10:00:00.000Z"); // Tuesday
+			const desc: ScheduleDescriptor = {
+				every: 2,
+				unit: "week",
+				weekdays: ["monday", "friday"],
+				atHour: 9,
+			};
+			const result = computeNextRun(desc, from);
+			// Result must be a Monday or Friday in the future
+			expect([1, 5]).toContain(result.dayOfWeek);
+			expect(epochMs(result)).toBeGreaterThan(epochMs(from));
 		});
 	});
 
@@ -391,6 +492,175 @@ describe("computeNextRun", () => {
 			expect(resultUtc.toInstant().epochMilliseconds).toBeGreaterThan(
 				resultBerlin.toInstant().epochMilliseconds,
 			);
+		});
+	});
+
+	describe("multiple times of day", () => {
+		it("daily at 09:00 & 17:00 — from 08:00 picks 09:00", () => {
+			const from = zdt("2025-01-06T08:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "day",
+				atTimes: [
+					{ hour: 9, minute: 0 },
+					{ hour: 17, minute: 0 },
+				],
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.hour).toBe(9);
+			expect(result.day).toBe(6);
+		});
+
+		it("daily at 09:00 & 17:00 — from 12:00 picks 17:00 same day", () => {
+			const from = zdt("2025-01-06T12:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "day",
+				atTimes: [
+					{ hour: 9, minute: 0 },
+					{ hour: 17, minute: 0 },
+				],
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.hour).toBe(17);
+			expect(result.day).toBe(6);
+		});
+
+		it("daily at 09:00 & 17:00 — from 18:00 picks 09:00 next day", () => {
+			const from = zdt("2025-01-06T18:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "day",
+				atTimes: [
+					{ hour: 9, minute: 0 },
+					{ hour: 17, minute: 0 },
+				],
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.hour).toBe(9);
+			expect(result.day).toBe(7);
+		});
+
+		it("argument order does not matter", () => {
+			const from = zdt("2025-01-06T12:00:00.000Z");
+			const a = computeNextRun(
+				{
+					every: 1,
+					unit: "day",
+					atTimes: [
+						{ hour: 9, minute: 0 },
+						{ hour: 17, minute: 0 },
+					],
+				},
+				from,
+			);
+			const b = computeNextRun(
+				{
+					every: 1,
+					unit: "day",
+					atTimes: [
+						{ hour: 17, minute: 0 },
+						{ hour: 9, minute: 0 },
+					],
+				},
+				from,
+			);
+			expect(epochMs(a)).toBe(epochMs(b));
+		});
+
+		it("weekly Monday at 09:00 & 17:00 stays on Monday", () => {
+			const from = zdt("2025-01-06T12:00:00.000Z"); // Monday
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "week",
+				weekdays: ["monday"],
+				atTimes: [
+					{ hour: 9, minute: 0 },
+					{ hour: 17, minute: 0 },
+				],
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(1);
+			expect(result.hour).toBe(17);
+		});
+	});
+
+	describe("last / nth day of month", () => {
+		it("on('last') hits the last day of a 31-day month", () => {
+			const from = zdt("2025-01-05T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "month",
+				lastDayOfMonth: true,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.month).toBe(1);
+			expect(result.day).toBe(31);
+		});
+
+		it("on('last') hits Feb 28 in a non-leap year", () => {
+			const from = zdt("2025-02-05T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "month",
+				lastDayOfMonth: true,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.month).toBe(2);
+			expect(result.day).toBe(28);
+		});
+
+		it("on('last') hits Feb 29 in a leap year", () => {
+			const from = zdt("2024-02-05T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "month",
+				lastDayOfMonth: true,
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.month).toBe(2);
+			expect(result.day).toBe(29);
+		});
+
+		it("on('last','friday') resolves the last Friday of January 2025 (Jan 31)", () => {
+			const from = zdt("2025-01-05T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "month",
+				nthWeekday: { ordinal: "last", weekday: "friday" },
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(5); // Friday
+			expect(result.day).toBe(31); // Jan 31 2025 is a Friday
+		});
+
+		it("on('first','monday') resolves the first Monday of January 2025 (Jan 6)", () => {
+			const from = zdt("2025-01-01T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 1,
+				unit: "month",
+				nthWeekday: { ordinal: "first", weekday: "monday" },
+			};
+			const result = computeNextRun(desc, from);
+			expect(result.dayOfWeek).toBe(1); // Monday
+			expect(result.day).toBe(6); // Jan 6 2025 is the first Monday
+		});
+
+		it("every(2).months().on('last') advances two months and re-resolves the last day", () => {
+			const from = zdt("2025-01-15T00:00:00.000Z");
+			const desc: ScheduleDescriptor = {
+				every: 2,
+				unit: "month",
+				lastDayOfMonth: true,
+			};
+			const first = computeNextRun(desc, from);
+			// Jan 31 is still in the future relative to Jan 15
+			expect(first.month).toBe(1);
+			expect(first.day).toBe(31);
+			const second = computeNextRun(desc, first);
+			// +2 months → March 31
+			expect(second.month).toBe(3);
+			expect(second.day).toBe(31);
 		});
 	});
 });

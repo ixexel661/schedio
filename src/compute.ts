@@ -1,4 +1,9 @@
-import type { ScheduleDescriptor, Weekday } from "./types.js";
+import type {
+	Ordinal,
+	ScheduleDescriptor,
+	TimeOfDay,
+	Weekday,
+} from "./types.js";
 
 // Temporal uses ISO weekday numbers (Mon=1 … Sun=7)
 const TEMPORAL_WEEKDAY: Record<Weekday, number> = {
@@ -10,6 +15,28 @@ const TEMPORAL_WEEKDAY: Record<Weekday, number> = {
 	saturday: 6,
 	sunday: 7,
 };
+
+const ORDINAL_INDEX: Record<Ordinal, number> = {
+	first: 0,
+	second: 1,
+	third: 2,
+	fourth: 3,
+	last: -1,
+};
+
+// The configured times of day, defaulting to the single atHour/atMinute (or midnight).
+function timesOf(desc: ScheduleDescriptor): readonly TimeOfDay[] {
+	if (desc.atTimes && desc.atTimes.length > 0) return desc.atTimes;
+	return [{ hour: desc.atHour ?? 0, minute: desc.atMinute ?? 0 }];
+}
+
+function earliest(
+	candidates: Temporal.ZonedDateTime[],
+): Temporal.ZonedDateTime {
+	return candidates.reduce((a, b) =>
+		Temporal.ZonedDateTime.compare(a, b) <= 0 ? a : b,
+	);
+}
 
 export function computeNextRun(
 	desc: ScheduleDescriptor,
@@ -61,11 +88,17 @@ function computeNextDay(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
-	const atHour = desc.atHour ?? 0;
-	const atMinute = desc.atMinute ?? 0;
+	return earliest(timesOf(desc).map((t) => nextForDay(desc, from, t)));
+}
+
+function nextForDay(
+	desc: ScheduleDescriptor,
+	from: Temporal.ZonedDateTime,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
 	let candidate = from.with({
-		hour: atHour,
-		minute: atMinute,
+		hour: time.hour,
+		minute: time.minute,
 		second: 0,
 		millisecond: 0,
 	});
@@ -93,17 +126,48 @@ function computeNextWeek(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
-	const atHour = desc.atHour ?? 0;
-	const atMinute = desc.atMinute ?? 0;
+	const times = timesOf(desc);
+
+	if (desc.weekdays && desc.weekdays.length > 0) {
+		// Compute the next occurrence of each (weekday × time), then pick the soonest.
+		const candidates: Temporal.ZonedDateTime[] = [];
+		for (const w of desc.weekdays) {
+			for (const t of times) {
+				candidates.push(
+					nextForWeekday(desc, from, TEMPORAL_WEEKDAY[w], true, t),
+				);
+			}
+		}
+		return earliest(candidates);
+	}
+
+	// No specific weekday: repeat on the same weekday as `from`, no epoch anchoring.
+	const candidates = times.map((t) => {
+		const base = from.with({
+			hour: t.hour,
+			minute: t.minute,
+			second: 0,
+			millisecond: 0,
+		});
+		return nextForWeekday(desc, from, base.dayOfWeek, false, t);
+	});
+	return earliest(candidates);
+}
+
+function nextForWeekday(
+	desc: ScheduleDescriptor,
+	from: Temporal.ZonedDateTime,
+	targetDayOfWeek: number,
+	anchored: boolean,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
 	let candidate = from.with({
-		hour: atHour,
-		minute: atMinute,
+		hour: time.hour,
+		minute: time.minute,
 		second: 0,
 		millisecond: 0,
 	});
 
-	const targetDayOfWeek =
-		desc.weekday != null ? TEMPORAL_WEEKDAY[desc.weekday] : candidate.dayOfWeek;
 	const daysUntilTarget = (targetDayOfWeek - candidate.dayOfWeek + 7) % 7;
 	candidate = candidate.add({ days: daysUntilTarget });
 
@@ -111,7 +175,7 @@ function computeNextWeek(
 		candidate = candidate.add({ weeks: desc.every });
 	}
 
-	if (desc.every > 1 && desc.weekday != null) {
+	if (desc.every > 1 && anchored) {
 		// Anchor weeks to the first occurrence of the target weekday on or after 1970-01-01.
 		// 1970-01-01 was a Thursday (dayOfWeek 4). daysToRef brings us to the epoch's
 		// first instance of targetDayOfWeek, ensuring every(N).weeks().monday() aligns
@@ -139,43 +203,87 @@ function computeNextMonth(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
-	const atDay = desc.atDay ?? 1;
-	const atHour = desc.atHour ?? 0;
-	const atMinute = desc.atMinute ?? 0;
+	return earliest(timesOf(desc).map((t) => nextForMonth(desc, from, t)));
+}
 
-	// overflow: 'constrain' clamps invalid days (e.g. Feb 31 → Feb 28)
-	const fields = {
-		day: atDay,
-		hour: atHour,
-		minute: atMinute,
-		second: 0,
-		millisecond: 0,
-	};
-	let candidate = from.with(fields, { overflow: "constrain" });
-
+function nextForMonth(
+	desc: ScheduleDescriptor,
+	from: Temporal.ZonedDateTime,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
+	let candidate = buildMonthly(from, desc, time);
 	if (Temporal.ZonedDateTime.compare(candidate, from) <= 0) {
-		candidate = from
-			.add({ months: desc.every })
-			.with(fields, { overflow: "constrain" });
+		candidate = buildMonthly(from.add({ months: desc.every }), desc, time);
+	}
+	return candidate;
+}
+
+// Build the fire time within the month of `monthRef`, resolving the day for that month.
+function buildMonthly(
+	monthRef: Temporal.ZonedDateTime,
+	desc: ScheduleDescriptor,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
+	// overflow: 'constrain' clamps invalid days (e.g. Feb 31 → Feb 28)
+	return monthRef.with(
+		{
+			day: monthlyDay(monthRef, desc),
+			hour: time.hour,
+			minute: time.minute,
+			second: 0,
+			millisecond: 0,
+		},
+		{ overflow: "constrain" },
+	);
+}
+
+// Resolve the day-of-month for the month of `monthRef`.
+function monthlyDay(
+	monthRef: Temporal.ZonedDateTime,
+	desc: ScheduleDescriptor,
+): number {
+	if (desc.lastDayOfMonth) return monthRef.daysInMonth;
+	if (desc.nthWeekday) return nthWeekdayOfMonth(monthRef, desc.nthWeekday);
+	return desc.atDay ?? 1;
+}
+
+// Day-of-month for the nth (or last) occurrence of a weekday within monthRef's month.
+function nthWeekdayOfMonth(
+	monthRef: Temporal.ZonedDateTime,
+	nth: { ordinal: Ordinal; weekday: Weekday },
+): number {
+	const targetDow = TEMPORAL_WEEKDAY[nth.weekday];
+	const daysInMonth = monthRef.daysInMonth;
+
+	if (nth.ordinal === "last") {
+		const lastDow = monthRef.with({ day: daysInMonth }).dayOfWeek;
+		const diff = (lastDow - targetDow + 7) % 7;
+		return daysInMonth - diff;
 	}
 
-	return candidate;
+	const firstDow = monthRef.with({ day: 1 }).dayOfWeek;
+	const offset = (targetDow - firstDow + 7) % 7;
+	// first–fourth always exist (≤ day 28)
+	return 1 + offset + 7 * ORDINAL_INDEX[nth.ordinal];
 }
 
 function computeNextYear(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
-	const atMonth = desc.atMonth ?? 1;
-	const atDay = desc.atDay ?? 1;
-	const atHour = desc.atHour ?? 0;
-	const atMinute = desc.atMinute ?? 0;
+	return earliest(timesOf(desc).map((t) => nextForYear(desc, from, t)));
+}
 
+function nextForYear(
+	desc: ScheduleDescriptor,
+	from: Temporal.ZonedDateTime,
+	time: TimeOfDay,
+): Temporal.ZonedDateTime {
 	const fields = {
-		month: atMonth,
-		day: atDay,
-		hour: atHour,
-		minute: atMinute,
+		month: desc.atMonth ?? 1,
+		day: desc.atDay ?? 1,
+		hour: time.hour,
+		minute: time.minute,
 		second: 0,
 		millisecond: 0,
 	};

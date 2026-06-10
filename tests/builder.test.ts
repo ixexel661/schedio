@@ -62,7 +62,7 @@ describe("builder chain — descriptor shape", () => {
 		expect(desc).toMatchObject({
 			every: 1,
 			unit: "week",
-			weekday: "monday",
+			weekdays: ["monday"],
 			atHour: 9,
 			atMinute: 0,
 		});
@@ -75,7 +75,11 @@ describe("builder chain — descriptor shape", () => {
 
 	it("every().weeks().friday()", () => {
 		const desc = capture(() => schedule().every().weeks().friday() as never);
-		expect(desc).toMatchObject({ every: 1, unit: "week", weekday: "friday" });
+		expect(desc).toMatchObject({
+			every: 1,
+			unit: "week",
+			weekdays: ["friday"],
+		});
 	});
 
 	it("every().seconds()", () => {
@@ -109,6 +113,40 @@ describe("builder chain — descriptor shape", () => {
 	it("every(3).months()", () => {
 		const desc = capture(() => schedule().every(3).months() as never);
 		expect(desc).toMatchObject({ every: 3, unit: "month" });
+	});
+
+	it('every().days().at("09:00","17:00") sets atTimes', () => {
+		const desc = capture(
+			() => schedule().every().days().at("09:00", "17:00") as never,
+		);
+		expect(desc).toMatchObject({
+			every: 1,
+			unit: "day",
+			atTimes: [
+				{ hour: 9, minute: 0 },
+				{ hour: 17, minute: 0 },
+			],
+		});
+	});
+
+	it('every().months().on("last") sets lastDayOfMonth', () => {
+		const desc = capture(() => schedule().every().months().on("last") as never);
+		expect(desc).toMatchObject({
+			every: 1,
+			unit: "month",
+			lastDayOfMonth: true,
+		});
+	});
+
+	it('every().months().on("last","friday") sets nthWeekday', () => {
+		const desc = capture(
+			() => schedule().every().months().on("last", "friday") as never,
+		);
+		expect(desc).toMatchObject({
+			every: 1,
+			unit: "month",
+			nthWeekday: { ordinal: "last", weekday: "friday" },
+		});
 	});
 
 	it("every().years()", () => {

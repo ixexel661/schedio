@@ -76,3 +76,12 @@ export function validateJitter(ms: number): void {
 		`jitter() expects a non-negative finite number, got: ${ms}`,
 	);
 }
+
+const ORDINALS = ["first", "second", "third", "fourth", "last"];
+
+export function validateOrdinal(ordinal: unknown): void {
+	assert(
+		typeof ordinal === "string" && ORDINALS.includes(ordinal),
+		`on() expects an ordinal (first|second|third|fourth|last), got: ${String(ordinal)}`,
+	);
+}
