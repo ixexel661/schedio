@@ -22,8 +22,11 @@ schedule().once().at('2026-12-31T23:59:00').run(fireworks)
 - **Last & nth days** — `every().month().on('last')` or `on('last', 'friday')`
 - **Date bounds** — `.starting(date)` / `.until(date)` confine a recurring schedule to a window
 - **One-shot scheduling** — `once().at(datetime)` fires exactly once at an absolute point in time
+- **Business-hours window** — `.between('09:00', '17:00')` keeps an interval schedule inside a daily window
+- **Skip filter** — `.skip(date => isHoliday(date))` skips matching fires; the next slot runs instead
 - **Run modifiers** — `.times(n)`, `.runNow()`, `.jitter(ms)` compose freely on any chain
-- **Inspectable** — the handle exposes `nextRun`, `lastRun`, `runCount`, and a readable `toString()`
+- **Inspectable** — the handle exposes `nextRun`, `nextRuns(n)`, `lastRun`, `runCount`, and a readable `toString()`
+- **Manual control** — `trigger()` fires on demand; `pause()` / `resume()` halt and continue
 - **Cancellation** — stop via `handle.stop()` or an `AbortSignal`; opt out of keeping the process alive with `unref`
 - **Error handling** — optional `onError` callback; job failures never stop the schedule
 - **Input validation** — invalid arguments throw a `RangeError` with a clear message immediately
@@ -31,7 +34,41 @@ schedule().once().at('2026-12-31T23:59:00').run(fireworks)
 
 ## Requirements
 
-Node.js ≥ 26 (uses the [Temporal API](https://tc39.es/proposal-temporal/))
+schedio uses the native [Temporal API](https://tc39.es/proposal-temporal/), which is
+built into **Node.js ≥ 26** — no dependencies, nothing to configure.
+
+On **older runtimes (Node ≥ 18)** install the polyfill and assign it to `globalThis`
+*before* importing schedio:
+
+```bash
+npm install @js-temporal/polyfill
+```
+
+```ts
+import { Temporal } from '@js-temporal/polyfill'
+globalThis.Temporal ??= Temporal
+
+import { schedule } from 'schedio'
+```
+
+If `Temporal` is missing, `schedule()` throws a `RangeError` pointing to this recipe.
+
+### Next.js
+
+schedio is an in-process scheduler, so it needs a long-lived Node.js server — it works
+with `next start` (and `next dev`), but **not** on serverless/Edge (Vercel functions,
+middleware), where the process doesn't stay alive between requests. Start it once from
+[`instrumentation.ts`](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation):
+
+```ts
+// instrumentation.ts
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { schedule } = await import('schedio')
+    schedule().every().day().at('02:00').run(runNightlyCleanup)
+  }
+}
+```
 
 ## Installation
 
@@ -238,6 +275,43 @@ ends as soon as the next fire (including any `.jitter()`) would pass the `until`
 > `every(30).seconds().starting(T)` first fires at ≈ `T + 30s`), not exactly at `T`.
 > Calendar units (`day`/`week`/`month`/`year`) fire at the first matching slot on or after `T`.
 
+#### `.between(start, end)` — confine to a daily time window
+
+Keep an interval schedule inside business hours. Outside the window, fires resume at
+the next window opening. Only valid on interval units (`seconds`, `minutes`, `hours`);
+calling it on a calendar chain throws, since those already pin a time of day.
+
+```ts
+// Every 30 minutes, but only between 09:00 and 17:00
+schedule().every(30).minutes().between('09:00', '17:00').run(job)
+
+// Every 2 hours during the working day
+schedule().every(2).hours().between('08:00', '18:00').run(job)
+```
+
+> **Note:** The window is half-open `[start, end)` — a fire landing exactly on `end`
+> is excluded. Overnight windows (`start ≥ end`, e.g. `'22:00'`–`'02:00'`) are not yet
+> supported and throw. The interval phase restarts at the window opening each day.
+
+#### `.skip(predicate)` — skip individual fires
+
+Skip any fire for which the predicate returns `true` (e.g. holidays); the next
+non-skipped slot runs instead.
+
+```ts
+// Every weekday at 09:00, but never on a holiday
+schedule().every().weekdays().at('09:00').skip(isHoliday).run(job)
+
+function isHoliday(date: Date): boolean {
+  // your own logic
+  return false
+}
+```
+
+> **Note:** As a safety valve against an accidental "skip everything" filter, the
+> schedule stops (reporting through `onError`) if the predicate rejects 1000
+> consecutive candidate runs.
+
 ### Error handling
 
 By default, job errors are silently swallowed so the schedule is never interrupted. Pass an `onError` callback to handle them:
@@ -276,22 +350,43 @@ console.log(handle.active) // false
 
 `stop()` is idempotent - calling it multiple times is safe.
 
+### Manual control — trigger, pause, resume
+
+```ts
+const handle = schedule().every().hours().run(job)
+
+// Run the job right now, off-schedule (doesn't touch the timer or the .times(n) budget)
+await handle.trigger()
+
+// Temporarily halt, then continue later
+handle.pause()
+console.log(handle.paused)  // → true
+handle.resume()             // next fire is computed relative to now
+```
+
+- `trigger()` runs the job immediately and returns a promise; it increments `runCount`/`lastRun` and routes errors through `onError`, but does not reschedule. It may overlap a scheduled run that's already in progress.
+- `pause()` clears the pending timer; no fires happen until `resume()`. Both are idempotent and safe to call after `stop()`.
+- `resume()` schedules the **next** fire relative to now — fires missed while paused are not caught up.
+
 ### Inspecting the schedule
 
 The `JobHandle` exposes a few read-only properties for monitoring:
 
-- `nextRun` — a `Date` of the next scheduled fire (including jitter), or `null` once stopped/exhausted
+- `nextRun` — a `Date` of the next scheduled fire (including jitter), or `null` once stopped/paused/exhausted
+- `nextRuns(n)` — an array of the next `n` scheduled fire times (un-jittered grid times), respecting `.until()` and `.times(n)`
 - `lastRun` — a `Date` of the most recent execution, or `null` before the first run
 - `runCount` — how many times the job has executed
+- `paused` — `true` while paused via `pause()`
 - `toString()` — a human-readable description of the schedule
 
 ```ts
 const handle = schedule().every().day().at('08:30').run(job)
 
-console.log(String(handle))  // → "every day at 08:30"
-console.log(handle.nextRun)  // → Date of the next 08:30
-console.log(handle.runCount) // → 0 (until it first fires)
-console.log(handle.lastRun)  // → null (until it first fires)
+console.log(String(handle))    // → "every day at 08:30"
+console.log(handle.nextRun)    // → Date of the next 08:30
+console.log(handle.nextRuns(3)) // → [next 08:30, the one after, …]
+console.log(handle.runCount)   // → 0 (until it first fires)
+console.log(handle.lastRun)    // → null (until it first fires)
 ```
 
 You can also describe a chain before running it, or render a descriptor directly with the exported `describeSchedule`:
@@ -333,6 +428,15 @@ schedule().every().hours().run(async () => {
   await sendHeartbeat()
 })
 ```
+
+### Persistence & restarts
+
+schedio is an **in-process, in-memory** scheduler: schedules live in the running
+Node.js process and are gone when it exits. There is no persistence and no catch-up —
+a fire whose time passes while the process is down (or asleep) is not replayed on the
+next start. Run a single long-lived process, and (re)create your schedules at startup.
+For cross-restart durability or multi-instance coordination, pair schedio with your own
+store or use a job queue.
 
 ### TypeScript — typing chain steps
 
@@ -389,6 +493,8 @@ interface ScheduleOptions {
 | `RunStep` | `.jitter(ms)` | `RunStep` | Add ±ms random spread per tick |
 | `RunStep` | `.starting(date)` | `RunStep` | Don't fire before `date` |
 | `RunStep` | `.until(date)` | `RunStep` | Stop once the next fire would pass `date` |
+| `RunStep` | `.between(start, end)` | `RunStep` | Confine to a daily `"HH:MM"`–`"HH:MM"` window (interval units only) |
+| `RunStep` | `.skip(predicate)` | `RunStep` | Skip a fire when `predicate(date)` returns `true` |
 | `RunStep` | `.run(job, options?)` | `JobHandle` | Start the schedule |
 
 Every step that has an optional `.at()` or `.on()` also exposes `.run()` directly, so the time offset is always optional.
@@ -411,12 +517,17 @@ interface RunOptions {
 
 ```ts
 interface JobHandle {
-  stop(): void
+  stop(): void                       // cancel permanently
+  pause(): void                      // halt without cancelling
+  resume(): void                     // resume a paused schedule (next fire relative to now)
+  trigger(): Promise<void>           // run the job now, off-schedule
   readonly active: boolean
-  readonly nextRun: Date | null  // next scheduled fire (incl. jitter), or null if stopped
-  readonly lastRun: Date | null  // most recent execution, or null before the first run
-  readonly runCount: number      // how many times the job has executed
-  toString(): string             // human-readable description, e.g. "every day at 08:30"
+  readonly paused: boolean           // true while paused
+  readonly nextRun: Date | null      // next scheduled fire (incl. jitter), or null if stopped/paused
+  nextRuns(count: number): Date[]    // the next `count` grid times (un-jittered)
+  readonly lastRun: Date | null      // most recent execution, or null before the first run
+  readonly runCount: number          // how many times the job has executed
+  toString(): string                 // human-readable description, e.g. "every day at 08:30"
 }
 ```
 
@@ -447,7 +558,7 @@ schedule().every().hours().at(99).run(job)
 
 ## Examples
 
-Two runnable examples are included in the [`examples/`](examples/) directory:
+A runnable example is included in the [`examples/`](examples/) directory:
 
 | Script | Description |
 |---|---|

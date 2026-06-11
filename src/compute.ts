@@ -45,17 +45,42 @@ function withTime(
 	});
 }
 
+// Skip filters can reject runs; cap the look-ahead so a filter that rejects
+// everything (e.g. `() => true`) fails fast instead of looping forever.
+const MAX_SKIP_ITERATIONS = 1000;
+
+/**
+ * The next scheduled fire after `from`, honoring an optional `.skip()` filter.
+ * Used by both the scheduler and `nextRuns()` so they always agree.
+ */
 export function computeNextRun(
+	desc: ScheduleDescriptor,
+	from: Temporal.ZonedDateTime,
+): Temporal.ZonedDateTime {
+	let candidate = computeRawNext(desc, from);
+	if (!desc.skip) return candidate;
+	for (let i = 0; i < MAX_SKIP_ITERATIONS; i++) {
+		const date = new Date(candidate.toInstant().epochMilliseconds);
+		if (!desc.skip(date)) return candidate;
+		// computeRawNext advances past a candidate equal to `from`, so this is strictly later.
+		candidate = computeRawNext(desc, candidate);
+	}
+	throw new RangeError(
+		`schedio: skip() rejected ${MAX_SKIP_ITERATIONS} consecutive runs — possible infinite filter`,
+	);
+}
+
+function computeRawNext(
 	desc: ScheduleDescriptor,
 	from: Temporal.ZonedDateTime,
 ): Temporal.ZonedDateTime {
 	switch (desc.unit) {
 		case "second":
-			return from.add({ seconds: desc.every });
+			return clampToWindow(from.add({ seconds: desc.every }), desc);
 		case "minute":
-			return from.add({ minutes: desc.every });
+			return clampToWindow(from.add({ minutes: desc.every }), desc);
 		case "hour":
-			return computeNextHour(desc, from);
+			return clampToWindow(computeNextHour(desc, from), desc);
 		case "day":
 			return computeNextDay(desc, from);
 		case "week":
@@ -65,6 +90,45 @@ export function computeNextRun(
 		case "year":
 			return computeNextYear(desc, from);
 	}
+}
+
+// ── .between() time-of-day window (second/minute/hour units) ─────────────────
+
+// The first in-window fire on `day`: for hour schedules the earliest `HH:atMinute`
+// at or after the window start; otherwise the window-start time exactly.
+function windowOpenOn(
+	day: Temporal.ZonedDateTime,
+	desc: ScheduleDescriptor,
+	windowStartMin: number,
+): Temporal.ZonedDateTime {
+	if (desc.unit === "hour") {
+		const atMin = desc.atMinute ?? 0;
+		const hour = Math.max(0, Math.ceil((windowStartMin - atMin) / 60));
+		return day.with({ hour, minute: atMin, second: 0, millisecond: 0 });
+	}
+	return day.with({
+		hour: Math.floor(windowStartMin / 60),
+		minute: windowStartMin % 60,
+		second: 0,
+		millisecond: 0,
+	});
+}
+
+// Move a candidate that falls outside the [start, end) window to the next window
+// opening (same day if before it, next day if at/after the close).
+function clampToWindow(
+	candidate: Temporal.ZonedDateTime,
+	desc: ScheduleDescriptor,
+): Temporal.ZonedDateTime {
+	if (desc.windowStartMin == null || desc.windowEndMin == null)
+		return candidate;
+	const secOfDay =
+		candidate.hour * 3600 + candidate.minute * 60 + candidate.second;
+	const startSec = desc.windowStartMin * 60;
+	const endSec = desc.windowEndMin * 60;
+	if (secOfDay >= startSec && secOfDay < endSec) return candidate;
+	const day = secOfDay >= endSec ? candidate.add({ days: 1 }) : candidate;
+	return windowOpenOn(day, desc, desc.windowStartMin);
 }
 
 function computeNextHour(

@@ -1,3 +1,5 @@
+import { timeToMinutes } from "./fields.js";
+
 function assert(cond: boolean, msg: string): void {
 	if (!cond) throw new RangeError(`schedio: ${msg}`);
 }
@@ -67,6 +69,32 @@ export function validateTimes(n: number): void {
 	assert(
 		Number.isInteger(n) && n >= 1,
 		`times() expects a positive integer ≥ 1, got: ${n}`,
+	);
+}
+
+export function validateCount(n: number): void {
+	assert(
+		Number.isInteger(n) && n >= 1,
+		`nextRuns() expects a positive integer ≥ 1, got: ${n}`,
+	);
+}
+
+export function validateBetween(
+	start: string | number,
+	end: string | number,
+): void {
+	validateAtTime(start);
+	validateAtTime(end);
+	assert(
+		timeToMinutes(start) < timeToMinutes(end),
+		`between() expects start before end (same-day window); overnight windows are not yet supported, got: ${String(start)}–${String(end)}`,
+	);
+}
+
+export function validateSkip(fn: unknown): void {
+	assert(
+		typeof fn === "function",
+		`skip() expects a function, got: ${typeof fn}`,
 	);
 }
 

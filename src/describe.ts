@@ -90,6 +90,11 @@ export function describeSchedule(desc: ScheduleDescriptor): string {
 			break;
 	}
 
+	if (desc.windowStartMin != null && desc.windowEndMin != null) {
+		const fmtMin = (m: number): string =>
+			`${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+		s += ` between ${fmtMin(desc.windowStartMin)} and ${fmtMin(desc.windowEndMin)}`;
+	}
 	if (desc.timezone) s += ` (${desc.timezone})`;
 	// Render bounds in the schedule's timezone so the line doesn't mix zones.
 	const tz = desc.timezone ?? Temporal.Now.timeZoneId();

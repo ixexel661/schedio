@@ -273,3 +273,56 @@ describe("validation — months().on() ordinals/weekdays", () => {
 		).not.toThrow();
 	});
 });
+
+describe("validation — between()", () => {
+	it("throws when start >= end (overnight not supported)", () => {
+		expect(() =>
+			schedule().every(30).minutes().between("17:00", "09:00"),
+		).toThrow(RangeError);
+		expect(() =>
+			schedule().every(30).minutes().between("17:00", "09:00"),
+		).toThrow("overnight");
+		expect(() =>
+			schedule().every(30).minutes().between("09:00", "09:00"),
+		).toThrow(RangeError);
+	});
+
+	it("throws on an invalid time", () => {
+		expect(() =>
+			schedule().every(30).minutes().between("noon", "17:00"),
+		).toThrow(RangeError);
+	});
+
+	it("throws on calendar units", () => {
+		expect(() => schedule().every().week().between("09:00", "17:00")).toThrow(
+			"only applies to",
+		);
+	});
+});
+
+describe("validation — nextRuns()", () => {
+	it("throws on 0, negative, and non-integer", () => {
+		const h = schedule().every(1).minutes().run(noop);
+		expect(() => h.nextRuns(0)).toThrow(RangeError);
+		expect(() => h.nextRuns(-1)).toThrow(RangeError);
+		expect(() => h.nextRuns(1.5)).toThrow(RangeError);
+		h.stop();
+	});
+});
+
+describe("validation — skip()", () => {
+	it("throws when the argument is not a function", () => {
+		expect(() =>
+			schedule()
+				.every(1)
+				.minutes()
+				.skip(123 as never),
+		).toThrow(RangeError);
+		expect(() =>
+			schedule()
+				.every(1)
+				.minutes()
+				.skip(123 as never),
+		).toThrow("skip()");
+	});
+});

@@ -1,5 +1,5 @@
 import { describeSchedule } from "./describe.js";
-import { WEEKDAYS, WEEKENDS } from "./fields.js";
+import { parseTimeOfDay, timeToMinutes, WEEKDAYS, WEEKENDS } from "./fields.js";
 import { OneshotJob, ScheduledJob } from "./scheduler.js";
 import type {
 	Job,
@@ -8,28 +8,22 @@ import type {
 	RunOptions,
 	ScheduleDescriptor,
 	ScheduleOptions,
-	TimeOfDay,
 	Weekday,
 } from "./types.js";
 import {
 	validateAtMinute,
 	validateAtTime,
+	validateBetween,
 	validateEvery,
 	validateJitter,
 	validateOnDay,
 	validateOnMonthDay,
 	validateOrdinal,
+	validateSkip,
 	validateTimes,
 	validateTimezone,
 	validateWeekday,
 } from "./validation.js";
-
-// Parse a single `.at()` argument (hour number or "HH:MM" string) into a TimeOfDay.
-function parseTimeOfDay(time: string | number): TimeOfDay {
-	if (typeof time === "number") return { hour: time, minute: 0 };
-	const [h = "0", m = "0"] = time.split(":");
-	return { hour: parseInt(h, 10), minute: parseInt(m, 10) };
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -156,6 +150,44 @@ export class RunStep {
 			...this.desc,
 			notAfterMs: parseBoundMs(target, this.desc.timezone, "until"),
 		});
+	}
+
+	/**
+	 * Confine the schedule to a daily time window, e.g. `.between("09:00", "17:00")`.
+	 *
+	 * Only valid on interval schedules (`seconds`/`minutes`/`hours`) — calling it on
+	 * a `days`/`weeks`/… chain throws, since those already pin a time of day. Fires
+	 * resume at the window start each day. Overnight windows (start ≥ end) are not
+	 * yet supported. Times accept `"HH:MM"` strings or whole-hour numbers.
+	 */
+	between(start: string | number, end: string | number): RunStep {
+		if (
+			this.desc.unit !== "second" &&
+			this.desc.unit !== "minute" &&
+			this.desc.unit !== "hour"
+		) {
+			throw new RangeError(
+				`schedio: between() only applies to second/minute/hour schedules, not ${this.desc.unit}`,
+			);
+		}
+		validateBetween(start, end);
+		return new RunStep({
+			...this.desc,
+			windowStartMin: timeToMinutes(start),
+			windowEndMin: timeToMinutes(end),
+		});
+	}
+
+	/**
+	 * Skip any fire for which `predicate` returns `true` — e.g. to exclude holidays.
+	 * The next non-skipped slot runs instead. As a safety valve, the schedule stops
+	 * (reporting via `onError`) if the filter rejects 1000 consecutive runs.
+	 *
+	 * @param predicate - Receives the candidate fire time as a local `Date`.
+	 */
+	skip(predicate: (date: Date) => boolean): RunStep {
+		validateSkip(predicate);
+		return new RunStep({ ...this.desc, skip: predicate });
 	}
 
 	/**
@@ -475,5 +507,12 @@ export class EveryStep {
  * schedule().once().at("2025-06-15T12:00:00Z").run(sendReport);
  */
 export function schedule(options?: ScheduleOptions): EveryStep {
+	if (typeof (globalThis as Record<string, unknown>).Temporal === "undefined") {
+		throw new RangeError(
+			"schedio: global `Temporal` is unavailable. On Node < 26 install " +
+				"@js-temporal/polyfill and run `import { Temporal } from '@js-temporal/polyfill'; " +
+				"globalThis.Temporal ??= Temporal;` before importing schedio. See README → Requirements.",
+		);
+	}
 	return new EveryStep(options);
 }

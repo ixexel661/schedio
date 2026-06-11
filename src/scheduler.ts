@@ -6,6 +6,7 @@ import type {
 	RunOptions,
 	ScheduleDescriptor,
 } from "./types.js";
+import { validateCount } from "./validation.js";
 
 // Node.js setTimeout only accepts 32-bit signed integers (~24.8 days max)
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -13,6 +14,7 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
 abstract class BaseJob implements JobHandle {
 	protected timer: ReturnType<typeof setTimeout> | null = null;
 	protected _active = true;
+	protected _paused = false;
 	// Absolute epoch-ms of the next scheduled fire, exposed via `nextRun`.
 	protected nextRunMs: number | null = null;
 	// Observability: time of the last run and total run count.
@@ -43,8 +45,12 @@ abstract class BaseJob implements JobHandle {
 		return this._active;
 	}
 
+	get paused(): boolean {
+		return this._paused;
+	}
+
 	get nextRun(): Date | null {
-		return this._active && this.nextRunMs !== null
+		return this._active && !this._paused && this.nextRunMs !== null
 			? new Date(this.nextRunMs)
 			: null;
 	}
@@ -58,6 +64,8 @@ abstract class BaseJob implements JobHandle {
 	}
 
 	abstract toString(): string;
+	abstract resume(): void;
+	abstract nextRuns(count: number): Date[];
 
 	stop(): void {
 		this._active = false;
@@ -65,7 +73,41 @@ abstract class BaseJob implements JobHandle {
 			clearTimeout(this.timer);
 			this.timer = null;
 		}
+		this.releaseSignal();
+	}
+
+	pause(): void {
+		if (!this._active || this._paused) return;
+		this._paused = true;
+		if (this.timer !== null) {
+			clearTimeout(this.timer);
+			this.timer = null;
+		}
+	}
+
+	/** Run the job once, off-schedule. Shared by manual `trigger()` and `pause()`-aware subclasses. */
+	trigger(): Promise<void> {
+		return this.invoke();
+	}
+
+	/** Detach the abort listener so a fired/stopped job doesn't linger on a shared signal. */
+	protected releaseSignal(): void {
 		this.signal?.removeEventListener("abort", this.onAbort);
+	}
+
+	/** Execute the job once: update observability and route errors through `onError`. */
+	protected async invoke(): Promise<void> {
+		this.lastRunMs = Date.now();
+		this._runCount++;
+		try {
+			await this.job();
+		} catch (err) {
+			try {
+				this.options?.onError?.(err);
+			} catch {
+				/* onError must not throw; swallow to keep schedule alive */
+			}
+		}
 	}
 
 	/** Arm a timer toward an absolute target, chunking around MAX_TIMEOUT_MS. */
@@ -110,10 +152,10 @@ export class ScheduledJob extends BaseJob {
 		this.runsLeft = desc.maxRuns ?? null;
 		if (!this._active) return; // signal already aborted
 		if (desc.runNow) void this.fire();
-		else this.scheduleNext();
+		else this.scheduleNext(true);
 	}
 
-	private scheduleNext(): void {
+	private scheduleNext(rethrow = false): void {
 		if (!this._active) return;
 
 		const tz = this.desc.timezone ?? Temporal.Now.timeZoneId();
@@ -124,10 +166,25 @@ export class ScheduledJob extends BaseJob {
 		const baseMs = this.scheduledMs ?? Math.max(Date.now(), floor - 1);
 		const base =
 			Temporal.Instant.fromEpochMilliseconds(baseMs).toZonedDateTimeISO(tz);
-		this.scheduledMs = computeNextRun(
-			this.desc,
-			base,
-		).toInstant().epochMilliseconds;
+
+		let nextMs: number;
+		try {
+			nextMs = computeNextRun(this.desc, base).toInstant().epochMilliseconds;
+		} catch (err) {
+			// A skip() filter rejected too many runs. On the first scheduling (from
+			// .run()) rethrow so the bug surfaces synchronously; afterwards (inside a
+			// timer) route to onError and stop instead of crashing the process.
+			if (rethrow) throw err;
+			try {
+				this.options?.onError?.(err);
+			} catch {
+				/* onError must not throw */
+			}
+			this.stop();
+			return;
+		}
+
+		this.scheduledMs = nextMs;
 
 		const jitter =
 			this.desc.jitterMs != null
@@ -147,25 +204,45 @@ export class ScheduledJob extends BaseJob {
 	}
 
 	protected async fire(): Promise<void> {
-		if (!this._active) return;
-		this.lastRunMs = Date.now();
-		this._runCount++;
-		try {
-			await this.job();
-		} catch (err) {
-			try {
-				this.options?.onError?.(err);
-			} catch {
-				/* onError must not throw; swallow to keep schedule alive */
-			}
-		}
-		if (this._active) {
+		if (!this._active || this._paused) return;
+		await this.invoke();
+		if (this._active && !this._paused) {
 			if (this.runsLeft !== null && --this.runsLeft <= 0) {
 				this.stop();
 			} else {
 				this.scheduleNext();
 			}
 		}
+	}
+
+	resume(): void {
+		if (!this._active || !this._paused) return;
+		this._paused = false;
+		// Recompute the next fire relative to now — missed fires aren't caught up.
+		this.scheduledMs = null;
+		this.scheduleNext();
+	}
+
+	nextRuns(count: number): Date[] {
+		validateCount(count);
+		if (!this._active || this.scheduledMs == null) return [];
+		const tz = this.desc.timezone ?? Temporal.Now.timeZoneId();
+		const out: number[] = [];
+		let cursor: number | null = this.scheduledMs;
+		let left = this.runsLeft;
+		while (out.length < count && cursor != null && (left == null || left > 0)) {
+			if (this.desc.notAfterMs != null && cursor > this.desc.notAfterMs) break;
+			out.push(cursor);
+			if (left != null) left--;
+			const base =
+				Temporal.Instant.fromEpochMilliseconds(cursor).toZonedDateTimeISO(tz);
+			try {
+				cursor = computeNextRun(this.desc, base).toInstant().epochMilliseconds;
+			} catch {
+				break; // skip() filter exhausted — stop the preview here
+			}
+		}
+		return out.map((ms) => new Date(ms));
 	}
 
 	toString(): string {
@@ -184,19 +261,35 @@ class OneshotJob extends BaseJob {
 	}
 
 	protected async fire(): Promise<void> {
-		if (!this._active) return;
+		if (!this._active || this._paused) return;
 		this._active = false;
-		this.lastRunMs = Date.now();
-		this._runCount++;
-		try {
-			await this.job();
-		} catch (err) {
-			try {
-				this.options?.onError?.(err);
-			} catch {
-				/* onError must not throw; swallow to keep schedule alive */
-			}
+		this.releaseSignal();
+		await this.invoke();
+	}
+
+	resume(): void {
+		if (!this._active || !this._paused) return;
+		this._paused = false;
+		this.armTimer(this.targetMs); // a past target fires immediately
+	}
+
+	// Fire now instead of later: cancel the pending timer so it can't double-fire.
+	override trigger(): Promise<void> {
+		if (!this._active) return Promise.resolve();
+		this._active = false;
+		if (this.timer !== null) {
+			clearTimeout(this.timer);
+			this.timer = null;
 		}
+		this.releaseSignal();
+		return this.invoke();
+	}
+
+	nextRuns(count: number): Date[] {
+		validateCount(count);
+		return this._active && this.nextRunMs != null
+			? [new Date(this.nextRunMs)]
+			: [];
 	}
 
 	toString(): string {

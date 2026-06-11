@@ -42,6 +42,9 @@ export interface ScheduleDescriptor {
 	atMonth?: number; // 1–12, month of year (for year unit)
 	lastDayOfMonth?: boolean; // set by .on("last") — last day of the month
 	nthWeekday?: { ordinal: Ordinal; weekday: Weekday }; // set by .on(ordinal, weekday)
+	windowStartMin?: number; // set by .between() — window opens at this minute-of-day (interval units)
+	windowEndMin?: number; // set by .between() — window closes at this minute-of-day (exclusive)
+	skip?: (date: Date) => boolean; // set by .skip() — skip a fire when this returns true
 	maxRuns?: number; // set by .times(n) — auto-stop after N runs
 	jitterMs?: number; // set by .jitter(ms) — random ±ms spread per tick
 	runNow?: boolean; // set by .runNow() — fire immediately on start
@@ -74,10 +77,35 @@ export interface RunOptions {
 export interface JobHandle {
 	/** Cancel the schedule and prevent any future executions. */
 	stop(): void;
+	/**
+	 * Temporarily halt the schedule without cancelling it. The pending timer is
+	 * cleared; no fires occur until `resume()`. Idempotent. Has no effect once stopped.
+	 */
+	pause(): void;
+	/**
+	 * Resume a paused schedule. The next fire is computed relative to now (missed
+	 * fires during the pause are not caught up). Idempotent; no effect if not paused.
+	 */
+	resume(): void;
+	/**
+	 * Run the job immediately, off-schedule. Increments `runCount`/`lastRun` and
+	 * routes errors through `onError`, but does not reschedule, does not consume the
+	 * `.times(n)` budget, and leaves the pending timer untouched.
+	 *
+	 * @returns A promise that resolves when the manual run completes.
+	 */
+	trigger(): Promise<void>;
 	/** `true` while the schedule is running; `false` after `stop()` or after `.times(n)` is exhausted. */
 	readonly active: boolean;
-	/** The next scheduled fire time (including jitter), or `null` if stopped/inactive. */
+	/** `true` while paused via `pause()` (still active, but not firing). */
+	readonly paused: boolean;
+	/** The next scheduled fire time (including jitter), or `null` if stopped/paused/inactive. */
 	readonly nextRun: Date | null;
+	/**
+	 * The next `count` scheduled fire times (un-jittered grid times), respecting
+	 * `.until()` and remaining `.times(n)`. Empty once stopped.
+	 */
+	nextRuns(count: number): Date[];
 	/** The time of the most recent execution, or `null` if the job hasn't run yet. */
 	readonly lastRun: Date | null;
 	/** How many times the job has executed so far. */

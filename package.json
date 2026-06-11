@@ -1,6 +1,6 @@
 {
 	"name": "schedio",
-	"version": "0.4.1",
+	"version": "0.5.0",
 	"description": "A zero-dependency Node.js scheduling library with a fluent, human-readable API - no cron syntax required.",
 	"author": "ixexel661",
 	"homepage": "https://github.com/ixexel661/schedio#readme",
@@ -45,6 +45,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
+		"@js-temporal/polyfill": "^0.5.1",
 		"@types/node": "^25.9.2",
 		"@vitest/coverage-v8": "^4.1.8",
 		"bumpp": "^11.1.0",
