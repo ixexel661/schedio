@@ -71,6 +71,16 @@ export interface RunOptions {
 	 * calling `stop()`). If the signal is already aborted, the job never runs.
 	 */
 	signal?: AbortSignal;
+	/**
+	 * When `true`, request a full garbage collection after each run completes, so
+	 * memory a heavy job allocated is released promptly instead of lingering (as RSS)
+	 * until the next run.
+	 *
+	 * Works without the `--expose-gc` launch flag — schedio obtains a GC hook at
+	 * runtime via `node:v8`/`node:vm`. A forced GC pauses the event loop, so enable
+	 * this only for heavy, infrequent jobs (not high-frequency schedules).
+	 */
+	gcAfterRun?: boolean;
 }
 
 /** Handle returned by `.run()`. Use it to check status or cancel the schedule. */

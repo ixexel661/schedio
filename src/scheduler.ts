@@ -1,3 +1,5 @@
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { computeNextRun } from "./compute.js";
 import { describeSchedule } from "./describe.js";
 import type {
@@ -11,6 +13,41 @@ import { validateCount } from "./validation.js";
 // Node.js setTimeout only accepts 32-bit signed integers (~24.8 days max)
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
+// ── gcAfterRun support ───────────────────────────────────────────────────────
+// undefined = not resolved yet, null = unavailable in this runtime.
+let fallbackGc: (() => void) | null | undefined;
+let warnedNoGc = false;
+
+// Prefer an already-exposed global.gc; otherwise create one at runtime via the
+// v8/vm trick, so gcAfterRun works without the `--expose-gc` launch flag.
+function resolveGc(): (() => void) | null {
+	const existing = (globalThis as { gc?: () => void }).gc;
+	if (existing) return existing;
+	if (fallbackGc === undefined) {
+		try {
+			setFlagsFromString("--expose-gc");
+			const fn = runInNewContext("gc") as unknown;
+			setFlagsFromString("--no-expose-gc");
+			fallbackGc = typeof fn === "function" ? (fn as () => void) : null;
+		} catch {
+			fallbackGc = null;
+		}
+	}
+	return fallbackGc;
+}
+
+function requestGc(): void {
+	const gc = resolveGc();
+	if (gc) {
+		gc();
+	} else if (!warnedNoGc) {
+		warnedNoGc = true;
+		console.warn(
+			"schedio: gcAfterRun could not obtain a GC hook in this runtime.",
+		);
+	}
+}
+
 abstract class BaseJob implements JobHandle {
 	protected timer: ReturnType<typeof setTimeout> | null = null;
 	protected _active = true;
@@ -22,6 +59,7 @@ abstract class BaseJob implements JobHandle {
 	protected _runCount = 0;
 
 	private readonly unref: boolean;
+	private readonly gcAfterRun: boolean;
 	private readonly signal: AbortSignal | undefined;
 	private readonly onAbort: () => void;
 
@@ -30,6 +68,7 @@ abstract class BaseJob implements JobHandle {
 		protected readonly options: RunOptions | undefined,
 	) {
 		this.unref = options?.unref ?? false;
+		this.gcAfterRun = options?.gcAfterRun ?? false;
 		this.signal = options?.signal;
 		this.onAbort = () => this.stop();
 		if (this.signal) {
@@ -107,6 +146,10 @@ abstract class BaseJob implements JobHandle {
 			} catch {
 				/* onError must not throw; swallow to keep schedule alive */
 			}
+		} finally {
+			// Release the job's memory now instead of letting it linger as RSS
+			// until the next run reuses the heap.
+			if (this.gcAfterRun) requestGc();
 		}
 	}
 

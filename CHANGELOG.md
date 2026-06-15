@@ -19,6 +19,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   disturbing the timer or consuming the `.times(n)` budget.
 - **`handle.pause()` / `handle.resume()` / `handle.paused`** — temporarily halt and
   resume a schedule.
+- **`gcAfterRun` run option** — request a full GC after each run to release a heavy job's
+  memory promptly instead of letting it linger as RSS until the next run. Works without
+  the `--expose-gc` launch flag.
 - **Node < 26 support** via the documented `@js-temporal/polyfill` path; calling
   `schedule()` without a global `Temporal` now throws a clear error pointing to it.
 - **Continuous integration** across Node 22 (polyfill) and Node 26 (native).

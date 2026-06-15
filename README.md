@@ -438,6 +438,30 @@ next start. Run a single long-lived process, and (re)create your schedules at st
 For cross-restart durability or multi-instance coordination, pair schedio with your own
 store or use a job queue.
 
+### Memory — releasing a heavy job's RAM (`gcAfterRun`)
+
+A memory-heavy job allocates a large working set on each run. V8 collects that garbage
+once the run finishes, but it does **not** return the freed heap to the OS while the
+process sits idle waiting for the next run — so the resident memory (RSS) stays high
+until the next run reuses the heap. If you watch the process, it looks like the memory
+is only "released" at the next execution.
+
+Pass `gcAfterRun: true` to request a full garbage collection right after each run, so the
+memory is freed during the idle gap instead:
+
+```ts
+schedule().every().hours().run(heavyJob, { gcAfterRun: true })
+```
+
+This works **without** the `--expose-gc` launch flag — schedio obtains a GC hook at
+runtime (via `node:v8`/`node:vm`), so it stays zero-dependency. If the process is already
+started with `--expose-gc`, that `global.gc` is used instead.
+
+> **Note:** A forced GC pauses the event loop, so enable this only for heavy, infrequent
+> jobs — not high-frequency schedules. For very large peaks, the most robust option is to
+> run the heavy work in a **worker thread or child process**: when it exits, its entire
+> memory is returned to the OS.
+
 ### TypeScript — typing chain steps
 
 All step classes are exported, so you can annotate variables explicitly:
@@ -508,6 +532,7 @@ interface RunOptions {
   onError?: (err: unknown) => void  // called when the job throws; schedule continues
   unref?: boolean                   // don't let timers keep the process alive
   signal?: AbortSignal              // aborting stops the schedule
+  gcAfterRun?: boolean              // request a full GC after each run (no launch flag needed)
 }
 ```
 
